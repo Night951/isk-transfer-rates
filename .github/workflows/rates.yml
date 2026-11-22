@@ -1,0 +1,38 @@
+name: Kursy ISK Transfer
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # co 15 minut (GitHub potrafi to opóźniać o kilka minut)
+  workflow_dispatch: {}      # ręczne uruchomienie z zakładki Actions
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: rates
+  cancel-in-progress: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: node scrape.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - uses: actions/deploy-pages@v4
