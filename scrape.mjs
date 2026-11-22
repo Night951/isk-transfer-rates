@@ -26,10 +26,38 @@ const PAGE_TEXT = () => {
   return t + "\n@@ROWS@@\n" + rows.join("\n");
 };
 
+const HEADERS = {
+  "Accept": "application/json",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36",
+};
+
+async function getJson(url) {
+  const r = await fetch(url, { headers: HEADERS });
+  const t = await r.text();
+  try { return JSON.parse(t); }
+  catch { throw new Error(`HTTP ${r.status}, not JSON: ${t.slice(0, 120).replace(/\s+/g, " ")}`); }
+}
+
+/** Mid rates as PLN per 1 unit. NBP first; if it refuses GitHub's servers, a free fallback source. */
 async function nbp() {
-  const r = await fetch("https://api.nbp.pl/api/exchangerates/tables/A?format=json");
-  const j = await r.json();
-  return Object.fromEntries(j[0].rates.map((x) => [x.code, x.mid]));
+  for (const url of ["https://api.nbp.pl/api/exchangerates/tables/A/?format=json",
+                     "https://api.nbp.pl/api/exchangerates/tables/a/?format=json"]) {
+    for (let i = 0; i < 2; i++) {
+      try {
+        const j = await getJson(url);
+        const m = Object.fromEntries(j[0].rates.map((x) => [x.code, x.mid]));
+        if (m.EUR && m.ISK) { console.log("mid rates: NBP"); return m; }
+      } catch (e) { console.log("NBP fail:", e.message); await sleep(3000); }
+    }
+  }
+  // fallback: rates per 1 EUR → PLN per 1 unit
+  const j = await getJson("https://open.er-api.com/v6/latest/EUR");
+  const r = j.rates;
+  if (!r || !r.PLN || !r.ISK) throw new Error("no mid rates from any source");
+  const m = {};
+  for (const [c, v] of Object.entries(r)) if (v > 0 && c !== "PLN") m[c] = r.PLN / v;
+  console.log("mid rates: open.er-api.com (NBP unavailable)");
+  return m;
 }
 
 /** ISK per unit of a currency, parsed with the same rules as the app (JPY/HUF may be quoted per 100). */
@@ -110,7 +138,7 @@ async function ukraine(n) {
   const ok = (v, e) => v > 0 && Math.abs(v / e - 1) < 0.06;
   const eE = n.EUR / n.UAH, eU = n.USD / n.UAH;
   try {
-    const a = await (await fetch("https://api.monobank.ua/bank/currency")).json();
+    const a = await getJson("https://api.monobank.ua/bank/currency");
     for (const o of a) {
       if (o.currencyCodeB !== 980) continue;
       if (o.currencyCodeA === 978 && ok(o.rateBuy, eE)) ua.monobank.eur = [o.rateBuy, o.rateSell];
@@ -118,7 +146,7 @@ async function ukraine(n) {
     }
   } catch (e) { console.log("monobank fail", e.message); }
   try {
-    const a = await (await fetch("https://api.privatbank.ua/p24api/pubinfo?exchange&coursid=11")).json();
+    const a = await getJson("https://api.privatbank.ua/p24api/pubinfo?exchange&coursid=11");
     for (const o of a) {
       if (o.base_ccy !== "UAH") continue;
       const b = parseFloat(o.buy), s = parseFloat(o.sale);
