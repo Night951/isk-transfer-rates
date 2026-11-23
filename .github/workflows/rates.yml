@@ -2,7 +2,7 @@ name: Kursy ISK Transfer
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # co 15 minut (GitHub potrafi to opóźniać o kilka minut)
+    - cron: "7,22,37,52 * * * *"   # co 15 minut, poza pełną godziną (GitHub pomija część uruchomień o :00)
   workflow_dispatch: {}      # ręczne uruchomienie z zakładki Actions
   push:
     branches: [main]
