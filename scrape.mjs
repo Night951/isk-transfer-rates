@@ -2,8 +2,9 @@
 // public APIs of monobank / PrivatBank, and writes public/rates.json for the ISK Transfer app.
 // Run: node scrape.mjs
 import { chromium } from "playwright";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { labels, findPair, findPairByValue, EUR_LABELS, USD_LABELS } from "./parser.mjs";
+import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
 
 // keep in sync with Dest.java
 const CODES = ["PLN", "EUR", "UAH", "GBP", "USD", "NOK", "SEK", "DKK", "CHF", "CZK", "HUF", "RON", "BRL", "PHP",
@@ -157,6 +158,40 @@ async function ukraine(n) {
   return ua;
 }
 
+// previously published file: Wise fees are reused for 6 hours, problems are compared with the last run
+function pagesUrl() {
+  if (process.env.PAGES_URL) return process.env.PAGES_URL.replace(/\/$/, "");
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY || "/").split("/");
+  return owner && repo ? `https://${owner.toLowerCase()}.github.io/${repo}` : "";
+}
+async function previous() {
+  const base = pagesUrl();
+  if (!base) return null;
+  try { return await getJson(`${base}/rates.json?t=${Date.now()}`); } catch (e) { console.log("no previous rates.json:", e.message); return null; }
+}
+
+/** Wise: mid rate + fee model for EUR → every destination, from Wise's public comparison API. */
+async function wise(prev) {
+  if (prev && prev.wise && Date.now() - (prev.wiseMs || 0) < 6 * 3600 * 1000 && Object.keys(prev.wise).length >= 5)
+    return { data: prev.wise, ms: prev.wiseMs };
+  const q = async (target, amount) => {
+    const j = await getJson(`https://api.wise.com/v3/comparisons/?sourceCurrency=EUR&targetCurrency=${target}&sendAmount=${amount}`);
+    const w = (j.providers || []).find((p) => /wise/i.test(p.name || p.alias || ""));
+    const quote = w && w.quotes && w.quotes[0];
+    return quote ? { amount, rate: quote.rate, fee: quote.fee } : null;
+  };
+  const data = {};
+  for (const c of CODES) {
+    if (c === "EUR") continue;
+    try {
+      const m = wiseModel(await q(c, 1000), await q(c, 200));
+      if (m) data[c] = m;
+    } catch (e) { console.log("wise", c, e.message); }
+    await sleep(400);
+  }
+  return { data, ms: Date.now() };
+}
+
 const n = await nbp();
 const exp = Object.fromEntries(CODES.filter((c) => n[c] || c === "PLN").map((c) => [c, (c === "PLN" ? 1 : n[c]) / n.ISK]));
 const browser = await chromium.launch();
@@ -170,8 +205,33 @@ console.log("alior", JSON.stringify(out.alior));
 await browser.close();
 out.ua = await ukraine(n);
 console.log("ua", JSON.stringify(out.ua));
+const prev = await previous();
+const w = await wise(prev);
+out.wise = w.data; out.wiseMs = w.ms;
+console.log("wise", Object.keys(out.wise).join(","));
+out.problems = problems(out, IS_BANKS.map((b) => b.id));
+console.log("problems", out.problems.join(", ") || "none");
 
 mkdirSync("public", { recursive: true });
 writeFileSync("public/rates.json", JSON.stringify(out, null, 2));
+
+// daily history (kept in the repository: data/history.json, committed by the workflow at most once an hour)
+mkdirSync("data", { recursive: true });
+const HF = "data/history.json";
+const hist = existsSync(HF) ? JSON.parse(readFileSync(HF, "utf8")) : { days: [] };
+const day = new Date().toISOString().slice(0, 10);
+const lastDay = hist.days && hist.days.length ? hist.days[hist.days.length - 1].d : "";
+const updated = addDay(hist, day, snapshot(out, CODES));
+if (shouldSave(hist.savedMs, lastDay, day, Date.now())) {
+  updated.savedMs = Date.now();
+  writeFileSync(HF, JSON.stringify(updated));
+  writeFileSync("data/.save", "1"); // tells the workflow to commit
+} else updated.savedMs = hist.savedMs;
+writeFileSync("public/history.json", JSON.stringify(updated));
+console.log(`history: ${updated.days.length} days`);
+
+// alarm only for problems that were already there in the previous run
+const alarm = persistent(out.problems, prev && prev.problems);
+writeFileSync("problems.txt", alarm.join("\n"));
 const ok = Object.values(out.banks).filter((b) => b.rates.EUR && b.rates.USD).length;
 console.log(`OK: ${ok}/${IS_BANKS.length} Icelandic banks, Alior: ${out.alior.eur ? "yes" : "no"}`);

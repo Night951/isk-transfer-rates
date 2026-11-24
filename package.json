@@ -1,5 +1,5 @@
 {
-  "name": "isk-pln-rates",
+  "name": "isk-transfer-rates",
   "private": true,
   "type": "module",
   "scripts": { "scrape": "node scrape.mjs", "test": "node test-parser.mjs" },

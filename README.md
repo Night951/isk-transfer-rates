@@ -1,6 +1,6 @@
 # Serwer kursów ISK Transfer (GitHub Actions + GitHub Pages)
 
-Automat co ok. 15 minut otwiera strony Landsbankinn, Íslandsbanki, Arion banki i Kantoru Alior w przeglądarce bez okna, odczytuje kursy wszystkich walut obsługiwanych przez aplikację, pobiera kursy monobanku i PrivatBanku z ich API i publikuje plik `rates.json`. Aplikacja czyta ten plik zamiast pobierać strony banków na telefonie. Jest szybciej, a gdy bank zmieni wygląd strony, wystarczy poprawić skrypt tutaj, bez nowej wersji w Sklepie Play. Jeśli plik jest niedostępny albo starszy niż 3 godziny, aplikacja wraca do pobierania na telefonie.
+Automat co ok. 15 minut otwiera strony Landsbankinn, Íslandsbanki, Arion banki i Kantoru Alior w przeglądarce bez okna, odczytuje kursy wszystkich walut obsługiwanych przez aplikację, pobiera kursy monobanku i PrivatBanku z ich API i publikuje plik `rates.json`. Aplikacja czyta ten plik zamiast pobierać strony banków na telefonie. Jest szybciej, a gdy bank zmieni wygląd strony, wystarczy poprawić skrypt tutaj, bez nowej wersji w Sklepie Play. Jeśli plik jest niedostępny albo starszy niż 6 godzin, aplikacja wraca do pobierania na telefonie.
 
 Na tej samej stronie jest też **polityka prywatności** (`privacy.html`), której adres podasz w Play Console.
 
@@ -17,6 +17,12 @@ Na tej samej stronie jest też **polityka prywatności** (`privacy.html`), któr
    - polityka prywatności: `https://TWOJA-NAZWA.github.io/isk-transfer-rates/privacy.html`
 6. **Uzupełnij politykę prywatności:** w `public/privacy.html` wpisz w nawiasach kwadratowych swoje imię/nazwę, e-mail i datę.
 7. **Wpisz oba adresy w aplikacji:** plik `app/src/main/java/pl/iskpln/kalkulator/Config.java`, pola `RATES_URL` i `PRIVACY_URL`.
+
+## Co jeszcze robi automat
+
+- **Wise:** raz na 6 godzin pobiera z publicznego API porównań Wise (`api.wise.com/v3/comparisons`) kurs i opłatę dla wymiany EUR na każdą walutę aplikacji i zapisuje je w `rates.json` (`wise`: kurs, opłata procentowa, opłata stała w EUR).
+- **Historia kursów:** zapisuje dzienne kursy sprzedaży banków islandzkich, kursy kupna Alioru i banków ukraińskich oraz kursy średnie NBP w `data/history.json` (150 dni). Plik jest zapisywany w repozytorium najwyżej raz na godzinę (commit „Historia kursów … [skip ci]”) i publikowany jako `history.json`. Aplikacja rysuje z niego wykres kursu Twojego banku i wysyła powiadomienie o najlepszym kursie w banku od miesiąca. Regularne zapisy utrzymują też repozytorium „aktywne”, więc GitHub nie powinien wyłączać harmonogramu po 60 dniach.
+- **Alarm:** jeśli przez co najmniej dwa uruchomienia z rzędu nie uda się odczytać któregoś banku, Alioru, monobanku, PrivatBanku albo Wise, automat zakłada zgłoszenie (Issue) „Kursy: problem z odczytem” i przypisuje je właścicielowi repozytorium – GitHub wysyła wtedy e-mail. Gdy odczyt wróci, zgłoszenie zamyka się samo. Zakładka *Issues* musi być włączona (jest domyślnie).
 
 ## Dobrze wiedzieć
 
@@ -42,6 +48,9 @@ Na tej samej stronie jest też **polityka prywatności** (`privacy.html`), któr
     "arion": { "rates": { }, "card": { } }
   },
   "alior": { "eur": [4.2312, 4.2598], "usd": [3.6401, 3.6702] },
+  "wise": { "PLN": { "rate": 4.4597, "pct": 0.55, "fixed": 0.7 } },
+  "wiseMs": 1763700000000,
+  "problems": [],
   "ua": { "monobank": { "eur": [49.26, 50.0], "usd": [44.91, 45.40] }, "privatbank": { "eur": [49.25, 50.25], "usd": [44.9, 45.45] } }
 }
 ```

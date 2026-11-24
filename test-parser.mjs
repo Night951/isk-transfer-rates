@@ -18,3 +18,22 @@ assert.deepStrictEqual(findPair(multi, labels("SEK"), 12.0, 0.04), [11.88, 12.01
 assert.deepStrictEqual(findPair(multi, labels("JPY"), 0.885, 0.04), [0.8811, 0.8901]);
 assert.strictEqual(findPair(multi, labels("UAH"), 2.78, 0.04), null);
 console.log("multi-currency tests OK");
+import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
+{
+  const out = { banks: { landsbankinn: { rates: { EUR: [143.5, 144.7], PLN: [34.4, 34.8] } } }, nbp: { EUR: 4.45, ISK: 0.0325, XDR: 5 },
+    alior: { eur: [4.43, 4.47] }, ua: { monobank: { eur: [49.3, 50] } } };
+  const s = snapshot(out, ["EUR", "PLN"]);
+  assert.deepStrictEqual(s.banks, { landsbankinn: { EUR: 144.7, PLN: 34.8 } });
+  assert.deepStrictEqual(s.nbp, { EUR: 4.45, ISK: 0.0325 });
+  assert.deepStrictEqual(s.alior, { eur: 4.43 });
+  let h = addDay({ days: [{ d: "2026-11-23", banks: {} }] }, "2026-11-24", s);
+  h = addDay(h, "2026-11-24", s);
+  assert.strictEqual(h.days.length, 2);
+  assert.strictEqual(shouldSave(1000, "2026-11-24", "2026-11-24", 1000 + 10 * 60000), false);
+  assert.strictEqual(shouldSave(1000, "2026-11-23", "2026-11-24", 1001), true);
+  const m = wiseModel({ amount: 1000, rate: 4.4597, fee: 6.2 }, { amount: 200, rate: 4.4597, fee: 1.8 });
+  assert.deepStrictEqual(m, { rate: 4.4597, pct: 0.55, fixed: 0.7 });
+  assert.deepStrictEqual(problems({ banks: {}, alior: {}, ua: {}, wise: {} }, ["arion"]), ["bank:arion", "alior", "monobank", "privatbank", "wise"]);
+  assert.deepStrictEqual(persistent(["alior", "wise"], ["wise"]), ["wise"]);
+  console.log("history tests OK");
+}
