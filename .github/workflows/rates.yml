@@ -3,23 +3,25 @@ name: Kursy ISK Transfer
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"   # co 15 minut, poza pełną godziną (GitHub pomija część uruchomień o :00)
-  workflow_dispatch: {}      # ręczne uruchomienie z zakładki Actions
+  workflow_dispatch: {}            # ręczne uruchomienie z zakładki Actions
   push:
     branches: [main]
+    paths-ignore: ["data/**"]      # zapis historii nie uruchamia automatu jeszcze raz
 
 permissions:
-  contents: read
+  contents: write    # zapis data/history.json
+  issues: write      # zgłoszenie, gdy odczyt kursów przestanie działać
   pages: write
   id-token: write
 
 concurrency:
   group: rates
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     environment:
       name: github-pages
     steps:
@@ -31,6 +33,34 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm test
       - run: node scrape.mjs
+
+      - name: Zapisz historię kursów (najwyżej raz na godzinę)
+        run: |
+          if [ -f data/.save ]; then
+            rm data/.save
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/history.json
+            git commit -m "Historia kursów $(date -u +%F' '%H:%M) [skip ci]" || exit 0
+            for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done
+          fi
+
+      - name: Zgłoszenie przy awarii odczytu
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="Kursy: problem z odczytem"
+          NUM=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number -q '.[0].number' || true)
+          if [ -s problems.txt ]; then
+            if [ -z "$NUM" ]; then
+              printf 'Od co najmniej dwóch uruchomień nie udaje się odczytać:\n\n%s\n\nAplikacja w tym czasie pobiera brakujące kursy na telefonie.\nLog: %s\n' "$(sed 's/^/- /' problems.txt)" "$RUN_URL" > body.md
+              gh issue create --title "$TITLE" --body-file body.md --assignee "${{ github.repository_owner }}" || gh issue create --title "$TITLE" --body-file body.md
+            fi
+          elif [ -n "$NUM" ]; then
+            gh issue close "$NUM" --comment "Odczyt znowu działa: $RUN_URL"
+          fi
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
