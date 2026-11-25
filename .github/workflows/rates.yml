@@ -25,8 +25,8 @@ jobs:
     environment:
       name: github-pages
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: npm install
@@ -61,8 +61,15 @@ jobs:
             gh issue close "$NUM" --comment "Odczyt znowu działa: $RUN_URL"
           fi
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: public
-      - uses: actions/deploy-pages@v4
+      # GitHub Pages czasem odpowiada błędem 500 – wtedy druga próba po minucie
+      - id: deploy1
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - if: steps.deploy1.outcome == 'failure'
+        run: sleep 60
+      - if: steps.deploy1.outcome == 'failure'
+        uses: actions/deploy-pages@v5
