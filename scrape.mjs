@@ -122,8 +122,9 @@ async function scrapeIs(browser, bank, exp) {
       }
       if (clicked) {
         // diagnostics: what the card table looks like (helps adjust the parser)
-        const lines = t.split("\n").filter((l) => /\b(PLN|EUR)\b/.test(l)).slice(0, 4);
-        console.log(bank.id, "card tab sample:", JSON.stringify(lines.map((l) => l.slice(0, 160))));
+        const all = t.split("\n");
+        const at = all.findIndex((l) => l.trim() === "PLN" || /\bPLN\b/.test(l));
+        console.log(bank.id, "card tab sample:", JSON.stringify(at >= 0 ? all.slice(Math.max(0, at - 4), at + 6).map((l) => l.slice(0, 120)) : []));
         const form = await page.evaluate(() => [...document.querySelectorAll("input,select,button,[role=combobox],[role=listbox],output")]
           .filter((e) => e.offsetParent !== null)
           .slice(0, 25)
@@ -132,8 +133,15 @@ async function scrapeIs(browser, bank, exp) {
       }
       for (const c of CODES) {
         if (t === before) break; // the tab did not change anything: no card rates
-        const v = parseCode(t, c, exp, 2) || parseCode(t, c, exp, 1), g = rates[c];
-        if (v && (!g || v[0] !== g[0] || v[1] !== g[1])) out.card[c] = v[1];
+        let v = parseCode(t, c, exp, 2) || parseCode(t, c, exp, 1);
+        if (!v && exp[c] > 0) {
+          // calculator view: amount of the currency you get for 1 000 ISK → ISK per unit = 1000 / amount
+          const inv = { ...exp, [c]: 1000 / exp[c] };
+          const w = parseCode(t, c, inv, 1);
+          if (w) v = [1000 / w[1], 1000 / w[0]];
+        }
+        const g = rates[c];
+        if (v && (!g || Math.abs(v[1] - g[1]) > 1e-9)) out.card[c] = Math.round(v[1] * 1e4) / 1e4;
       }
     } catch (e) { console.log(bank.id, "card tab error:", e.message); }
   }
