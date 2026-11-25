@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+data/.save
+problems.txt
+body.md
+public/rates.json
+public/history.json

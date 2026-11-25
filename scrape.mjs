@@ -11,7 +11,7 @@ const CODES = ["PLN", "EUR", "UAH", "GBP", "USD", "NOK", "SEK", "DKK", "CHF", "C
   "THB", "CAD", "AUD", "NZD", "JPY", "CNY", "HKD", "SGD", "ZAR"];
 const IS_BANKS = [
   { id: "landsbankinn", urls: ["https://www.landsbankinn.is/en/markets/exchange-rates", "https://www.landsbankinn.is/markadir/gjaldmidlar"], cardTab: /^visa(-?gengi)?$/i },
-  { id: "islandsbanki", urls: ["https://www.islandsbanki.is/en/article/exchange-rates", "https://www.islandsbanki.is/is/grein/gengi-gjaldmidla"], cardTab: /^mastercard(-?gengi)?$/i },
+  { id: "islandsbanki", urls: ["https://www.islandsbanki.is/en/article/exchange-rates", "https://www.islandsbanki.is/is/grein/gengi-gjaldmidla"], cardTab: /^mastercard[\s-]?(gengi)?$/i },
   { id: "arion", urls: ["https://www.arionbanki.is/english/markets/currency-converter", "https://www.arionbanki.is/markadir/gjaldmidlar/"], cardTab: /^(visa|kort(a)?gengi|card rate)$/i },
 ];
 const ALIOR_URLS = ["https://kantor.aliorbank.pl/", "https://kantor.aliorbank.pl/kursy-walut",
@@ -112,11 +112,18 @@ async function scrapeIs(browser, bank, exp) {
         try { await el.click({ timeout: 3000 }); clicked = true; } catch { /* try the next one */ }
       }
       console.log(bank.id, "card tab", clicked ? "clicked" : `not found (${n} candidates)`);
-      let t = before;
-      for (let k = 0; k < 8 && clicked; k++) {
+      // wait until the page has changed AND has stopped changing (the new table may load in steps)
+      let t = before, prev = before;
+      for (let k = 0; k < 12 && clicked; k++) {
         await sleep(1000);
         t = await page.evaluate(PAGE_TEXT);
-        if (t !== before) break;
+        if (t !== before && t === prev && k >= 2) break;
+        prev = t;
+      }
+      if (clicked) {
+        // diagnostics: what the card table looks like (helps adjust the parser)
+        const lines = t.split("\n").filter((l) => /\b(PLN|EUR)\b/.test(l)).slice(0, 4);
+        console.log(bank.id, "card tab sample:", JSON.stringify(lines.map((l) => l.slice(0, 160))));
       }
       for (const c of CODES) {
         if (t === before) break; // the tab did not change anything: no card rates
