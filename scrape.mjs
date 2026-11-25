@@ -96,22 +96,34 @@ async function scrapeIs(browser, bank, exp) {
   // single-rate tables as a last resort
   for (const c of CODES) if (!rates[c]) { const v = parseCode(text, c, exp, 1); if (v) rates[c] = v; }
   const out = { rates, card: {} };
-  // card rate tab (a value is only trusted if it differs from the general rate)
+  // card rate tab (e.g. "Visa"): a real mouse click on the visible tab, then wait until the table changes.
+  // A value is only trusted if it differs from the general rate.
   if (rates.EUR && bank.cardTab) {
     try {
-      await page.evaluate((src) => {
-        const re = new RegExp(src, "i");
-        for (const el of document.querySelectorAll("button,a,li,[role=tab],span,div,label")) {
-          if (re.test((el.innerText || el.textContent || "").trim())) { el.click(); return; }
-        }
-      }, bank.cardTab.source);
-      await sleep(2500);
-      const t = await page.evaluate(PAGE_TEXT);
+      const before = await page.evaluate(PAGE_TEXT);
+      const tabs = page.locator("button, a, li, [role=tab], label, span, div").filter({ hasText: bank.cardTab }).filter({ visible: true });
+      const n = await tabs.count();
+      let clicked = false;
+      // innermost matching element first (the last one in document order)
+      for (let k = n - 1; k >= 0 && !clicked; k--) {
+        const el = tabs.nth(k);
+        const t = ((await el.innerText().catch(() => "")) || "").trim();
+        if (!bank.cardTab.test(t)) continue;
+        try { await el.click({ timeout: 3000 }); clicked = true; } catch { /* try the next one */ }
+      }
+      console.log(bank.id, "card tab", clicked ? "clicked" : `not found (${n} candidates)`);
+      let t = before;
+      for (let k = 0; k < 8 && clicked; k++) {
+        await sleep(1000);
+        t = await page.evaluate(PAGE_TEXT);
+        if (t !== before) break;
+      }
       for (const c of CODES) {
-        const v = parseCode(t, c, exp, 1), g = rates[c];
+        if (t === before) break; // the tab did not change anything: no card rates
+        const v = parseCode(t, c, exp, 2) || parseCode(t, c, exp, 1), g = rates[c];
         if (v && (!g || v[0] !== g[0] || v[1] !== g[1])) out.card[c] = v[1];
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.log(bank.id, "card tab error:", e.message); }
   }
   await page.close();
   return out;
