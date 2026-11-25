@@ -124,6 +124,11 @@ async function scrapeIs(browser, bank, exp) {
         // diagnostics: what the card table looks like (helps adjust the parser)
         const lines = t.split("\n").filter((l) => /\b(PLN|EUR)\b/.test(l)).slice(0, 4);
         console.log(bank.id, "card tab sample:", JSON.stringify(lines.map((l) => l.slice(0, 160))));
+        const form = await page.evaluate(() => [...document.querySelectorAll("input,select,button,[role=combobox],[role=listbox],output")]
+          .filter((e) => e.offsetParent !== null)
+          .slice(0, 25)
+          .map((e) => `${e.tagName.toLowerCase()}#${e.id}.${(e.className || "").toString().slice(0, 40)} name=${e.name || ""} type=${e.type || ""} val=${(e.value || e.innerText || "").toString().slice(0, 30)} aria=${e.getAttribute("aria-label") || ""}`));
+        console.log(bank.id, "card tab controls:", JSON.stringify(form));
       }
       for (const c of CODES) {
         if (t === before) break; // the tab did not change anything: no card rates
@@ -211,52 +216,6 @@ async function wise(prev) {
   return { data, ms: Date.now() };
 }
 
-/** Picks the number in a JSON reply that is (or whose inverse is) within 4% of the expected ISK-per-unit rate. */
-function pickRate(text, expected) {
-  const nums = (text.match(/-?\d+(?:\.\d+)?(?:[eE]-?\d+)?/g) || []).map(Number).filter((x) => x > 0);
-  let best = null;
-  for (const x of nums) for (const v of [x, 1 / x]) {
-    const d = Math.abs(v / expected - 1);
-    if (d < 0.04 && (!best || d < best.d)) best = { v, d };
-  }
-  return best ? best.v : 0;
-}
-
-/** Card-network rates (ISK per 1 unit) from the public Visa and Mastercard converters, opened in a real browser. */
-async function cardNetworks(browser, exp, prev) {
-  if (prev && prev.cardNet && Date.now() - (prev.cardNetMs || 0) < 3 * 3600 * 1000) return { data: prev.cardNet, ms: prev.cardNetMs };
-  const data = { visa: {}, mastercard: {} };
-  const d = new Date();
-  const mdY = `${String(d.getUTCMonth() + 1).padStart(2, "0")}%2F${String(d.getUTCDate()).padStart(2, "0")}%2F${d.getUTCFullYear()}`;
-  const nets = [
-    { id: "visa", home: "https://www.visa.co.uk/support/consumer/travel-support/exchange-rate-calculator.html",
-      url: (c) => `https://www.visa.co.uk/cmsapi/fx/rates?amount=1&fee=0&utcConvertedDate=${mdY}&exchangedate=${mdY}&fromCurr=ISK&toCurr=${c}` },
-    { id: "mastercard", home: "https://www.mastercard.co.uk/en-gb/personal/get-support/convert-currency.html",
-      url: (c) => `https://www.mastercard.co.uk/settlement/currencyrate/conversion-rate?fxDate=0000-00-00&transCurr=${c}&crdhldBillCurr=ISK&bankFee=0&transAmt=1` },
-  ];
-  for (const net of nets) {
-    const page = await browser.newPage({ viewport: { width: 1366, height: 1000 } });
-    try {
-      await page.goto(net.home, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await sleep(2000);
-      for (const c of CODES) {
-        if (!(exp[c] > 0)) continue;
-        const text = await page.evaluate(async (u) => {
-          try { const r = await fetch(u, { headers: { Accept: "application/json" } }); return r.status + " " + (await r.text()); }
-          catch (e) { return "ERR " + e.message; }
-        }, net.url(c));
-        const v = pickRate(text.slice(4), exp[c]);
-        if (v > 0) data[net.id][c] = Math.round(v * 1e6) / 1e6;
-        else if (c === "PLN" || c === "EUR") console.log(net.id, c, "reply:", text.slice(0, 200).replace(/\s+/g, " "));
-        await sleep(250);
-      }
-    } catch (e) { console.log(net.id, "error:", e.message); }
-    await page.close();
-    console.log(net.id, Object.keys(data[net.id]).join(","));
-  }
-  return { data, ms: Date.now() };
-}
-
 const n = await nbp();
 const exp = Object.fromEntries(CODES.filter((c) => n[c] || c === "PLN").map((c) => [c, (c === "PLN" ? 1 : n[c]) / n.ISK]));
 const browser = await chromium.launch();
@@ -266,16 +225,7 @@ for (const b of IS_BANKS) {
   console.log(b.id, Object.keys(out.banks[b.id].rates).join(","), "card:", Object.keys(out.banks[b.id].card).join(","));
 }
 out.alior = await scrapeAlior(browser, n);
-{
-  const prevForCards = await previous();
-  const cn = await cardNetworks(browser, exp, prevForCards);
-  out.cardNet = cn.data; out.cardNetMs = cn.ms;
-  const netOf = { landsbankinn: "visa", arion: "visa", islandsbanki: "mastercard" };
-  for (const b of IS_BANKS) {
-    const net = out.cardNet[netOf[b.id]] || {};
-    for (const [c, v] of Object.entries(net)) if (!out.banks[b.id].card[c]) out.banks[b.id].card[c] = v;
-  }
-}
+
 console.log("alior", JSON.stringify(out.alior));
 await browser.close();
 out.ua = await ukraine(n);
