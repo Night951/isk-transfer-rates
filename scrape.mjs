@@ -101,6 +101,17 @@ async function scrapeIs(browser, bank, exp) {
   if (rates.EUR && bank.cardTab) {
     try {
       const before = await page.evaluate(PAGE_TEXT);
+      // record JSON replies the page loads after the click (the card table may come from an API)
+      const seen = [];
+      const onResp = async (r) => {
+        try {
+          const ct = r.headers()["content-type"] || "";
+          if (!/json/i.test(ct)) return;
+          const body = await r.text();
+          seen.push({ url: r.url(), body });
+        } catch { /* ignore */ }
+      };
+      page.on("response", onResp);
       const tabs = page.locator("button, a, li, [role=tab], label, span, div").filter({ hasText: bank.cardTab }).filter({ visible: true });
       const n = await tabs.count();
       let clicked = false;
@@ -130,6 +141,12 @@ async function scrapeIs(browser, bank, exp) {
           .slice(0, 25)
           .map((e) => `${e.tagName.toLowerCase()}#${e.id}.${(e.className || "").toString().slice(0, 40)} name=${e.name || ""} type=${e.type || ""} val=${(e.value || e.innerText || "").toString().slice(0, 30)} aria=${e.getAttribute("aria-label") || ""}`));
         console.log(bank.id, "card tab controls:", JSON.stringify(form));
+        await sleep(3000);
+        page.off("response", onResp);
+        for (const x of seen.slice(0, 8)) console.log(bank.id, "card api:", x.url.slice(0, 200), "→", x.body.length, "B", x.body.slice(0, 300).replace(/\s+/g, " "));
+        const t2 = await page.evaluate(PAGE_TEXT);
+        const all2 = t2.split("\n"); const at2 = all2.findIndex((l) => l.trim() === "PLN");
+        console.log(bank.id, "card tab sample after 3s:", JSON.stringify(at2 >= 0 ? all2.slice(at2 - 2, at2 + 8).map((l) => l.slice(0, 80)) : []));
       }
       for (const c of CODES) {
         if (t === before) break; // the tab did not change anything: no card rates
