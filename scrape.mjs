@@ -4,6 +4,7 @@
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { labels, findPair, findPairByValue, EUR_LABELS, USD_LABELS } from "./parser.mjs";
+import { parseTax } from "./tax.mjs";
 import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
 
 // keep in sync with Dest.java
@@ -318,10 +319,28 @@ for (const b of PL_BANKS) {
 }
 
 console.log("alior", JSON.stringify(out.alior));
+const prev = await previous();
+// Icelandic withholding tax for the salary calculator (re-read every 6 hours)
+out.tax = prev && prev.tax && Date.now() - (prev.tax.ms || 0) < 6 * 3600 * 1000 ? prev.tax : null;
+if (!out.tax) {
+  const page = await browser.newPage();
+  const y = new Date().getUTCFullYear();
+  for (const year of [y, y - 1]) {
+    const url = `https://www.skatturinn.is/einstaklingar/helstutolur/${year}/`;
+    if (!(await load(page, url))) continue;
+    await sleep(1500);
+    const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+    const r = parseTax(t, year);
+    if (r) { out.tax = { ...r, src: url, ms: Date.now() }; break; }
+    console.log("tax: not parsed from", url, JSON.stringify(t.slice(t.indexOf("Skattþrep"), t.indexOf("Skattþrep") + 300)));
+  }
+  await page.close();
+  if (!out.tax && prev && prev.tax) out.tax = prev.tax; // keep the last known values
+}
+console.log("tax", JSON.stringify(out.tax));
 await browser.close();
 out.ua = await ukraine(n);
 console.log("ua", JSON.stringify(out.ua));
-const prev = await previous();
 const w = await wise(prev);
 out.wise = w.data; out.wiseMs = w.ms;
 console.log("wise", Object.keys(out.wise).join(","));
