@@ -30,6 +30,13 @@ const PL_BANKS = [
   { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
 ];
 const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
+// Norwegian banks (sending side when the app is set to Norway): NOK per 1 unit, [bank buys, bank sells]
+const NO_BANKS = [
+  { id: "dnb", urls: ["https://www.dnb.no/markets/valuta-og-renter/valutakurser", "https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/valutakurser"] },
+  { id: "nordea", urls: ["https://www.nordea.no/privat/dagligbank/valuta/valutakurser.html", "https://www.nordea.no/privat/vare-produkter/valuta/valutakurser.html", "https://www.nordea.no/privat/kundeservice/valutakurser.html"] },
+  { id: "sparebank1", urls: ["https://www.sparebank1.no/nb/bank/privat/kundeservice/valuta/valutakurser.html", "https://www.sparebank1.no/nb/bank/privat/valuta/valutakurser.html", "https://www.sparebank1.no/nb/ostlandet/privat/valutakurser.html"] },
+  { id: "handelsbanken", urls: ["https://www.handelsbanken.no/no/markets/valuta/valutakurser", "https://www.handelsbanken.no/no/privat/hverdagstjenester/valutakurser"] },
+];
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
 const FX_BANKS = [
   { id: "fio", ccy: "CZK", urls: ["https://www.fio.cz/bankovni-sluzby/kurzovni-listek", "https://www.fio.cz/akcie-investice/dalsi-sluzby-fio/devizove-konverze"] },
@@ -291,6 +298,45 @@ async function scrapeFx(browser, bank, n) {
   return { ccy: bank.ccy, rates, url: used };
 }
 
+/** A Norwegian bank's rate table: NOK per 1 unit for every code NBP knows (per-100 quotes scaled). */
+async function scrapeNo(browser, bank, n) {
+  const page = await browser.newPage({ viewport: { width: 1366, height: 1000 }, locale: "nb-NO" });
+  const nok = n.NOK;
+  const codes = CODES.filter((c) => c !== "NOK" && n[c]);
+  const rates = {};
+  let used = "";
+  for (const url of bank.urls) {
+    if (!nok || !(await load(page, url))) continue;
+    for (let i = 0; i < 8; i++) {
+      await sleep(1500);
+      if (i === 1) {
+        const b = page.locator("button, a").filter({ hasText: /^(godta|aksepter|jeg forstår|ok|tillat alle|godkjenn)/i }).filter({ visible: true }).first();
+        try { if (await b.count()) await b.click({ timeout: 1500 }); } catch { /* ignore */ }
+      }
+      const text = await page.evaluate(PAGE_TEXT).catch(() => "");
+      const rows = text.split("@@ROWS@@")[1] || "";
+      for (const c of codes) {
+        if (rates[c]) continue;
+        const e = n[c] / nok;
+        for (const part of [rows, text]) {
+          let v = findPair(part, labels(c), e, TOL, 2), k = 1;
+          if (!v) { v = findPair(part, labels(c), e * 100, TOL, 2); k = 100; }
+          if (v && Math.max(...v) > Math.min(...v)) { rates[c] = [v[0] / k, v[1] / k]; break; }
+        }
+      }
+      if (rates.EUR && rates.PLN && i >= 2) break;
+    }
+    if (rates.EUR) { used = url; break; }
+  }
+  if (!rates.EUR) {
+    const t = await page.evaluate(PAGE_TEXT).catch(() => "");
+    const k = t.search(/EUR/);
+    console.log(bank.id, "no EUR; sample:", JSON.stringify(t.slice(Math.max(0, k - 150), k + 250)).slice(0, 450));
+  }
+  await page.close();
+  return { rates, url: used };
+}
+
 async function ukraine(n) {
   const ua = { monobank: {}, privatbank: {} };
   const ok = (v, e) => v > 0 && Math.abs(v / e - 1) < 0.06;
@@ -366,6 +412,12 @@ for (const b of PL_BANKS) {
 }
 
 console.log("alior", JSON.stringify(out.alior));
+out.no = {};
+for (const b of NO_BANKS) {
+  try { out.no[b.id] = await scrapeNo(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.no[b.id] = { rates: {} }; }
+  const r = out.no[b.id].rates;
+  console.log("no", b.id, Object.keys(r).length, "codes", r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.PLN ? `PLN ${r.PLN.join("/")}` : "-", out.no[b.id].url || "");
+}
 out.fx = {};
 for (const b of FX_BANKS) {
   try { out.fx[b.id] = await scrapeFx(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.fx[b.id] = { ccy: b.ccy, rates: {} }; }
