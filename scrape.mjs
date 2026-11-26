@@ -24,7 +24,6 @@ const PL_BANKS = [
   { id: "mbank", urls: ["https://www.mbank.pl/serwis-ekonomiczny/kursy-walut/"] },
   { id: "pekao", urls: ["https://www.pekao.com.pl/kursy-walut/lista-walut.html"] },
   { id: "erste", urls: ["https://www.erste.pl/kursy-walut", "https://www.santander.pl/klient-indywidualny/karty-platnosci-i-przelewy/kursy-walut"] },
-  { id: "ing", urls: ["https://www.ing.pl/indywidualni/narzedzia-i-informacje/kursy-walut", "https://www.ing.pl/kursy-walut", "https://www.ing.pl/indywidualni/tabela-kursow"] },
   { id: "millennium", urls: ["https://www.bankmillennium.pl/kursy-walut", "https://www.bankmillennium.pl/o-banku/serwis-ekonomiczny/kursy-walut"] },
   { id: "walutomat", urls: ["https://www.walutomat.pl/kursy-walut/", "https://www.walutomat.pl/kursy-walut/eur-pln/"] },
   { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
@@ -516,7 +515,12 @@ console.log("taxno", JSON.stringify(out.taxno));
     try {
       if (await load(page, "https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat")) {
         await sleep(1500);
-        const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+        let t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+        for (let k = 0; k < 3 && /not a bot|menneske/i.test(t); k++) { // skat.dk sometimes shows a bot check first
+          await sleep(8000);
+          t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+        }
+        if (!parseDkTax(t, 2026)) console.log("taxdk sample", JSON.stringify(t.slice(0, 1500)));
         const year = +((t.match(/beløbsgrænser i (\d{4})/) || [])[1] || new Date().getUTCFullYear());
         const r = parseDkTax(t, year);
         if (r) out.taxdk = { ...r, src: "https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat", ms: Date.now() };
