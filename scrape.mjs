@@ -34,7 +34,6 @@ const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 const NO_BANKS = [
   { id: "dnb", urls: ["https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/markets/valuta-og-renter/valutakurser/valutakurs-overforsel-daglig"] },
   { id: "nordea", urls: ["https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html#tab=Daglige-kurser---Overforinger-Sjekker", "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser-og-valutakalkulator.html"] },
-  { id: "sparebank1", urls: ["https://www.sparebank1.no/nb/sr-bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/nb/bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/content/dam/SB1/bank/sr-bank/markedsrapporter/markets/daglig_oppdatering/dagens_valutakurser.pdf"] },
 ];
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
 const FX_BANKS = [
