@@ -35,6 +35,19 @@ const NO_BANKS = [
   { id: "dnb", urls: ["https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/markets/valuta-og-renter/valutakurser/valutakurs-overforsel-daglig"] },
   { id: "nordea", urls: ["https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html#tab=Daglige-kurser---Overforinger-Sjekker", "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser-og-valutakalkulator.html"] },
 ];
+// Sweden (SEK) and Denmark (DKK): same table format as Norway
+const SE_BANKS = [
+  { id: "swedbank", urls: ["https://www.swedbank.se/privat/rantor-priser-och-kurser/valutakurser-betalningar.html", "https://www.swedbank.se/vv/privat/rantor-priser-och-kurser/valutakurser-betalningar.html"] },
+  { id: "seb", urls: ["https://seb.se/marknaden-och-kurslistor/valutakurser-avistakurser", "https://seb.se/bors-och-finans/valutakurser-avistakurser"] },
+  { id: "nordea_se", urls: ["https://www.nordea.se/privat/valutakurser.html"] },
+];
+const DK_BANKS = [
+  { id: "nordea_dk", urls: ["https://www.nordea.dk/privat/produkter/konto-og-betaling/valutakurser.html", "https://www.nordea.dk/privat/valutakurser.html"] },
+  { id: "jyske", urls: ["https://www.jyskebank.dk/kurser/valutakurser", "https://www.jyskebank.dk/privat/vaerktoejer/valutakurser"] },
+  { id: "dnb_dk", urls: ["https://www.dnb.no/dk/da/markets/valuta-renter/kursliste.html"] },
+];
+// Danske Bank publishes no rate list, only its margin over the market rate (±0.40% for main currencies)
+const DANSKE_MARGIN = 0.004;
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
 const FX_BANKS = [
   { id: "fio", ccy: "CZK", urls: ["https://www.fio.cz/bankovni-sluzby/kurzovni-listek", "https://www.fio.cz/akcie-investice/dalsi-sluzby-fio/devizove-konverze"] },
@@ -297,11 +310,11 @@ async function scrapeFx(browser, bank, n) {
 }
 
 /** A Norwegian bank's rate table: NOK per 1 unit for every code NBP knows (per-100 quotes scaled). */
-async function scrapeNo(browser, bank, n) {
-  const page = await browser.newPage({ viewport: { width: 1366, height: 1000 }, locale: "nb-NO" });
-  const nok = n.NOK;
+async function scrapeNo(browser, bank, n, home = "NOK") {
+  const page = await browser.newPage({ viewport: { width: 1366, height: 1000 }, locale: { NOK: "nb-NO", SEK: "sv-SE", DKK: "da-DK" }[home] });
+  const nok = n[home];
   n = { ...n, PLN: 1 }; // NBP quotes everything in PLN
-  const codes = CODES.filter((c) => c !== "NOK" && n[c]);
+  const codes = CODES.filter((c) => c !== home && n[c]);
   const rates = {};
   let used = "";
   for (const url of bank.urls) {
@@ -309,7 +322,7 @@ async function scrapeNo(browser, bank, n) {
     for (let i = 0; i < 8; i++) {
       await sleep(1500);
       if (i === 1) {
-        const b = page.locator("button, a").filter({ hasText: /^(godta|aksepter|jeg forstår|ok|tillat alle|godkjenn)/i }).filter({ visible: true }).first();
+        const b = page.locator("button, a").filter({ hasText: /^(godta|aksepter|jeg forstår|ok|tillat alle|godkjenn|godkänn|acceptera|tillåt alla|accepter|tillad alle|ja tak)/i }).filter({ visible: true }).first();
         try { if (await b.count()) await b.click({ timeout: 1500 }); } catch { /* ignore */ }
       }
       let text = await page.evaluate(PAGE_TEXT).catch(() => "");
@@ -418,6 +431,22 @@ for (const b of NO_BANKS) {
   const r = out.no[b.id].rates;
   console.log("no", b.id, Object.keys(r).length, "codes", r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.PLN ? `PLN ${r.PLN.join("/")}` : "-", out.no[b.id].url || "");
 }
+for (const [key, home, list] of [["se", "SEK", SE_BANKS], ["dk", "DKK", DK_BANKS]]) {
+  out[key] = {};
+  for (const b of list) {
+    try { out[key][b.id] = await scrapeNo(browser, b, n, home); } catch (e) { console.log(b.id, "fail", e.message); out[key][b.id] = { rates: {} }; }
+    const r = out[key][b.id].rates;
+    console.log(key, b.id, Object.keys(r).length, "codes", r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.PLN ? `PLN ${r.PLN.join("/")}` : "-", out[key][b.id].url || "");
+  }
+}
+{
+  const r = {};
+  for (const c of CODES) {
+    const v = c === "PLN" ? 1 / n.DKK : n[c] / n.DKK;
+    if (c !== "DKK" && v > 0 && isFinite(v)) r[c] = [+(v * (1 - DANSKE_MARGIN)).toFixed(6), +(v * (1 + DANSKE_MARGIN)).toFixed(6)];
+  }
+  out.dk.danske = { rates: r, derived: "mid ±0.40%" };
+}
 out.fx = {};
 for (const b of FX_BANKS) {
   try { out.fx[b.id] = await scrapeFx(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.fx[b.id] = { ccy: b.ccy, rates: {} }; }
@@ -464,6 +493,35 @@ if (!out.taxno) {
   if (!out.taxno && prev && prev.taxno) out.taxno = prev.taxno;
 }
 console.log("taxno", JSON.stringify(out.taxno));
+// diagnostics: Swedish monthly tax tables (txt) and Danish rates on skat.dk
+{
+  const page = await browser.newPage();
+  try {
+    if (await load(page, "https://skatteverket.se/specialversionerforprogramforetagmfl.4.319dc1451507f2f99e86ee.html")) {
+      await sleep(1500);
+      const links = await page.evaluate(() => [...document.querySelectorAll("a")].map((a) => [a.innerText.trim(), a.href]).filter(([t, h]) => /txt|\.txt/i.test(t + h)).slice(0, 12)).catch(() => []);
+      console.log("taxse links", JSON.stringify(links));
+      const l = links.find(([t]) => /månadslön/i.test(t)) || links[0];
+      if (l) {
+        const res = await page.request.get(l[1]);
+        const body = await res.text();
+        console.log("taxse file", res.status(), body.length, JSON.stringify(body.slice(0, 700)));
+        const i = body.search(/\n30B/);
+        console.log("taxse sample30", JSON.stringify(body.slice(i, i + 500)));
+      }
+    }
+  } catch (e) { console.log("taxse fail", e.message); }
+  for (const url of ["https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat", "https://skat.dk/hjaelp/personfradrag", "https://skat.dk/hjaelp/beskaeftigelsesfradrag", "https://skat.dk/hjaelp/am-bidrag"]) {
+    try {
+      if (!(await load(page, url))) { console.log("taxdk no load", url); continue; }
+      await sleep(1500);
+      const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+      const i = t.search(/\d{1,3}\.\d{3} kr|procent|%/);
+      console.log("taxdk", url, t.length, JSON.stringify(t.slice(Math.max(0, i - 200), i + 700)));
+    } catch (e) { console.log("taxdk fail", url, e.message); }
+  }
+  await page.close();
+}
 await browser.close();
 out.ua = await ukraine(n);
 console.log("ua", JSON.stringify(out.ua));
