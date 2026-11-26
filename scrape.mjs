@@ -30,6 +30,23 @@ const PL_BANKS = [
   { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
 ];
 const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
+// banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
+const FX_BANKS = [
+  { id: "fio", ccy: "CZK", urls: ["https://www.fio.cz/bankovni-sluzby/kurzovni-listek", "https://www.fio.cz/akcie-investice/dalsi-sluzby-fio/devizove-konverze"] },
+  { id: "csob", ccy: "CZK", urls: ["https://www.csob.cz/portal/lide/kurzovni-listek", "https://www.csob.cz/lide/kurzovni-listek"] },
+  { id: "kb", ccy: "CZK", urls: ["https://www.kb.cz/cs/kurzovni-listek", "https://www.kb.cz/cs/kurzovni-listek/cs/rl/index"] },
+  { id: "csas", ccy: "CZK", urls: ["https://www.csas.cz/cs/kurzovni-listek", "https://www.csas.cz/cs/kurzovni-listek#/"] },
+  { id: "airbank", ccy: "CZK", urls: ["https://www.airbank.cz/kurzovni-listek/"] },
+  { id: "bt", ccy: "RON", urls: ["https://www.bancatransilvania.ro/curs-valutar", "https://www.bancatransilvania.ro/curs-valutar-spot"] },
+  { id: "bcr", ccy: "RON", urls: ["https://www.bcr.ro/ro/curs-valutar", "https://www.bcr.ro/ro/persoane-fizice/curs-valutar"] },
+  { id: "brd", ccy: "RON", urls: ["https://www.brd.ro/curs-valutar-si-dobanzi-de-referinta", "https://www.brd.ro/curs-valutar"] },
+  { id: "ingro", ccy: "RON", urls: ["https://www.ing.ro/curs-valutar", "https://ing.ro/persoane-fizice/curs-valutar"] },
+  { id: "oschad", ccy: "UAH", urls: ["https://www.oschadbank.ua/currency-rate", "https://www.oschadbank.ua/en/currency-rate"] },
+  { id: "raiffua", ccy: "UAH", urls: ["https://raiffeisen.ua/currency", "https://raiffeisen.ua/en/currency"] },
+  { id: "pumb", ccy: "UAH", urls: ["https://about.pumb.ua/info/currency_converter", "https://www.pumb.ua/"] },
+  { id: "bb", ccy: "BRL", urls: ["https://www.bb.com.br/site/cotacao-de-moedas/", "https://www.bb.com.br/pbb/pagina-inicial/voce/produtos-e-servicos/cambio/cotacao-de-moedas"] },
+  { id: "itau", ccy: "BRL", urls: ["https://www.itau.com.br/cambio/cotacao", "https://www.itau.com.br/investimentos/cambio"] },
+];
 const TOL = 0.04;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -244,6 +261,43 @@ async function scrapePl(browser, bank, n) {
   return { rates, url: used };
 }
 
+/** A bank abroad: {ccy, rates: {EUR: [buy, sell], USD: […]}, url}; local units per 1 EUR/USD. */
+async function scrapeFx(browser, bank, n) {
+  const page = await browser.newPage({ viewport: { width: 1366, height: 1000 } });
+  const loc = n[bank.ccy];
+  const exp = loc ? { EUR: n.EUR / loc, USD: n.USD / loc } : {};
+  const rates = {};
+  let used = "";
+  for (const url of bank.urls) {
+    if (!loc || !(await load(page, url))) continue;
+    for (let i = 0; i < 8; i++) {
+      await sleep(1500);
+      if (i === 1) {
+        const b = page.locator("button, a").filter({ hasText: /^(accept|acceptă|accepta|souhlas|přijmout|akceptuj|aceitar|aceito|прийняти|погоджуюсь|ok|rozumím|sunt de acord)/i }).filter({ visible: true }).first();
+        try { if (await b.count()) await b.click({ timeout: 1500 }); } catch { /* ignore */ }
+      }
+      const text = await page.evaluate(PAGE_TEXT).catch(() => "");
+      const rows = text.split("@@ROWS@@")[1] || "";
+      for (const c of ["EUR", "USD"]) {
+        if (rates[c]) continue;
+        for (const part of [rows, text]) {
+          const v = findPair(part, labels(c), exp[c], TOL, 2);
+          if (v && Math.max(...v) > Math.min(...v)) { rates[c] = [Math.min(...v), Math.max(...v)]; break; }
+        }
+      }
+      if (rates.EUR && rates.USD && i >= 2) break;
+    }
+    if (rates.EUR) { used = url; break; }
+  }
+  if (!rates.EUR) {
+    const t = await page.evaluate(PAGE_TEXT).catch(() => "");
+    const k = t.search(/EUR/);
+    console.log(bank.id, "no EUR (exp", exp.EUR && exp.EUR.toFixed(3), "); sample:", JSON.stringify(t.slice(Math.max(0, k - 150), k + 250)).slice(0, 450));
+  }
+  await page.close();
+  return { ccy: bank.ccy, rates, url: used };
+}
+
 async function ukraine(n) {
   const ua = { monobank: {}, privatbank: {} };
   const ok = (v, e) => v > 0 && Math.abs(v / e - 1) < 0.06;
@@ -319,6 +373,12 @@ for (const b of PL_BANKS) {
 }
 
 console.log("alior", JSON.stringify(out.alior));
+out.fx = {};
+for (const b of FX_BANKS) {
+  try { out.fx[b.id] = await scrapeFx(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.fx[b.id] = { ccy: b.ccy, rates: {} }; }
+  const r = out.fx[b.id].rates;
+  console.log("fx", b.id, b.ccy, r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.USD ? `USD ${r.USD.join("/")}` : "-", out.fx[b.id].url || "");
+}
 const prev = await previous();
 // Icelandic withholding tax for the salary calculator (re-read every 6 hours)
 out.tax = prev && prev.tax && Date.now() - (prev.tax.ms || 0) < 6 * 3600 * 1000 ? prev.tax : null;
