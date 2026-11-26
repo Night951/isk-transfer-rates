@@ -41,7 +41,6 @@ const SE_BANKS = [
   { id: "nordea_se", urls: ["https://www.nordea.se/privat/valutakurser.html"] },
 ];
 const DK_BANKS = [
-  { id: "dnb_dk", urls: ["https://www.dnb.no/dk/da/markets/valuta-renter/kursliste.html"] },
 ];
 // Danske Bank publishes no rate list, only its margin over the market rate (±0.40% for main currencies)
 const DANSKE_MARGIN = 0.004;
