@@ -5,13 +5,13 @@ export const KEEP_DAYS = 150;
 /** One day's snapshot from a rates.json object: sell rates of Icelandic banks, buy rates of receivers, NBP mids. */
 export function snapshot(out, codes) {
   const banks = {};
-  for (const [id, b] of Object.entries(out.banks || {})) {
+  for (const [id, b] of Object.entries({ ...(out.banks || {}), ...(out.no || {}) })) {
     const r = {};
     for (const [c, p] of Object.entries(b.rates || {})) if (Array.isArray(p) && p[1] > 0) r[c] = p[1];
     if (Object.keys(r).length) banks[id] = r;
   }
   const nbp = {};
-  for (const c of [...codes, "ISK"]) if (out.nbp && out.nbp[c] > 0) nbp[c] = round(out.nbp[c], 6);
+  for (const c of [...codes, "ISK", "NOK"]) if (out.nbp && out.nbp[c] > 0) nbp[c] = round(out.nbp[c], 6);
   const buy = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, p]) => Array.isArray(p) && p[0] > 0).map(([k, p]) => [k, p[0]]));
   return {
     banks, nbp,

@@ -32,10 +32,9 @@ const PL_BANKS = [
 const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 // Norwegian banks (sending side when the app is set to Norway): NOK per 1 unit, [bank buys, bank sells]
 const NO_BANKS = [
-  { id: "dnb", urls: ["https://www.dnb.no/markets/valuta-og-renter/valutakurser", "https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/valutakurser"] },
-  { id: "nordea", urls: ["https://www.nordea.no/privat/dagligbank/valuta/valutakurser.html", "https://www.nordea.no/privat/vare-produkter/valuta/valutakurser.html", "https://www.nordea.no/privat/kundeservice/valutakurser.html"] },
-  { id: "sparebank1", urls: ["https://www.sparebank1.no/nb/bank/privat/kundeservice/valuta/valutakurser.html", "https://www.sparebank1.no/nb/bank/privat/valuta/valutakurser.html", "https://www.sparebank1.no/nb/ostlandet/privat/valutakurser.html"] },
-  { id: "handelsbanken", urls: ["https://www.handelsbanken.no/no/markets/valuta/valutakurser", "https://www.handelsbanken.no/no/privat/hverdagstjenester/valutakurser"] },
+  { id: "dnb", urls: ["https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/markets/valuta-og-renter/valutakurser/valutakurs-overforsel-daglig"] },
+  { id: "nordea", urls: ["https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html", "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser-og-valutakalkulator.html"] },
+  { id: "sparebank1", urls: ["https://www.sparebank1.no/nb/sr-bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/nb/bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/content/dam/SB1/bank/sr-bank/markedsrapporter/markets/daglig_oppdatering/dagens_valutakurser.pdf"] },
 ];
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
 const FX_BANKS = [
@@ -302,6 +301,7 @@ async function scrapeFx(browser, bank, n) {
 async function scrapeNo(browser, bank, n) {
   const page = await browser.newPage({ viewport: { width: 1366, height: 1000 }, locale: "nb-NO" });
   const nok = n.NOK;
+  n = { ...n, PLN: 1 }; // NBP quotes everything in PLN
   const codes = CODES.filter((c) => c !== "NOK" && n[c]);
   const rates = {};
   let used = "";
@@ -443,6 +443,23 @@ if (!out.tax) {
   if (!out.tax && prev && prev.tax) out.tax = prev.tax; // keep the last known values
 }
 console.log("tax", JSON.stringify(out.tax));
+// Norway: withholding rules for the salary calculator (diagnostics first)
+{
+  const page = await browser.newPage();
+  const y = new Date().getUTCFullYear();
+  for (const url of [`https://www.skatteetaten.no/rettskilder/type/skattedirektoratets-meldinger/forskuddsmeldingen-${y}/`,
+    `https://www.skatteetaten.no/en/rettskilder/type/skattedirektoratets-meldinger/forskuddsmeldingen-${y}/`]) {
+    if (!(await load(page, url))) { console.log("notax: no load", url); continue; }
+    await sleep(1500);
+    const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+    for (const k of ["Personfradrag", "Minstefradrag", "Trinnskatt", "Trygdeavgift", "Kildeskatt", "Alminnelig inntekt", "Finnmark"]) {
+      const i = t.indexOf(k);
+      console.log("notax", k, i, JSON.stringify(i >= 0 ? t.slice(i, i + 420) : ""));
+    }
+    if (t.includes("Personfradrag")) break;
+  }
+  await page.close();
+}
 await browser.close();
 out.ua = await ukraine(n);
 console.log("ua", JSON.stringify(out.ua));
