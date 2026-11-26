@@ -37,3 +37,14 @@ import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from ".
   assert.deepStrictEqual(persistent(["alior", "wise"], ["wise"]), ["wise"]);
   console.log("history tests OK");
 }
+
+// extra sources: SpareBank 1 PDF text and the sanity filter
+{
+  const { parseSb1, sane } = await import("./extra.mjs");
+  const t = "LAND VALUTA MIDTKURS Kjøp Salg Kjøp Salg\nUSA 1 USD 10,8154 10,7774 10,8534 10,4654 11,1654\nEURO 1 EUR 11,6797 11,6367 11,7227 11,2297 12,1297\nSVERIGE 100 SEK 107,10 106,70 107,50 103,00 111,00\n";
+  const r = parseSb1(t);
+  assert.deepStrictEqual(r.EUR, [11.6367, 11.7227]);
+  assert.deepStrictEqual(r.SEK, [1.067, 1.075]);
+  assert.deepStrictEqual(sane({ EUR: [11.6, 11.7], USD: [5, 6] }, { EUR: 11.65, USD: 10.8 }), { EUR: [11.6, 11.7] });
+  console.log("extra tests OK");
+}

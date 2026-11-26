@@ -5,6 +5,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { labels, findPair, findPairByValue, EUR_LABELS, USD_LABELS } from "./parser.mjs";
 import { parseTax, parseNoTax, parseSeTables, parseDkTax } from "./tax.mjs";
+import { API_FX, seb, sparebank1, sane, getBody } from "./extra.mjs";
 import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
 
 // keep in sync with Dest.java
@@ -27,6 +28,7 @@ const PL_BANKS = [
   { id: "millennium", urls: ["https://www.bankmillennium.pl/kursy-walut", "https://www.bankmillennium.pl/o-banku/serwis-ekonomiczny/kursy-walut"] },
   { id: "walutomat", urls: ["https://www.walutomat.pl/kursy-walut/", "https://www.walutomat.pl/kursy-walut/eur-pln/"] },
   { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
+  { id: "velo", urls: ["https://www.velobank.pl/kursy-walut"], tol: 0.06 },
 ];
 const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 // Norwegian banks (sending side when the app is set to Norway): NOK per 1 unit, [bank buys, bank sells]
@@ -52,6 +54,8 @@ const FX_BANKS = [
   { id: "ingro", ccy: "RON", urls: ["https://www.ing.ro/curs-valutar", "https://ing.ro/persoane-fizice/curs-valutar"] },
   { id: "oschad", ccy: "UAH", urls: ["https://www.oschadbank.ua/currency-rate", "https://www.oschadbank.ua/en/currency-rate"] },
   { id: "pumb", ccy: "UAH", urls: ["https://about.pumb.ua/info/currency_converter", "https://www.pumb.ua/"] },
+  { id: "rb_cz", ccy: "CZK", urls: ["https://www.rb.cz/informacni-servis/kurzovni-listek"] },
+  { id: "bochk", ccy: "HKD", urls: ["https://www.bochk.com/whk/rates/exchangeRatesHKD/exchangeRatesHKD-input.action?lang=en"] },
 ];
 const TOL = 0.04;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -249,7 +253,7 @@ async function scrapePl(browser, bank, n) {
       for (const c of PL_CODES) {
         if (rates[c] || !exp[c]) continue;
         for (const part of [rows, text]) {
-          const v = findPair(part, labels(c), exp[c], TOL, 2);
+          const v = findPair(part, labels(c), exp[c], bank.tol || TOL, 2);
           if (v && Math.max(...v) > Math.min(...v)) { rates[c] = [Math.min(...v), Math.max(...v)]; break; }
         }
       }
@@ -447,6 +451,39 @@ for (const b of FX_BANKS) {
   try { out.fx[b.id] = await scrapeFx(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.fx[b.id] = { ccy: b.ccy, rates: {} }; }
   const r = out.fx[b.id].rates;
   console.log("fx", b.id, b.ccy, r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.USD ? `USD ${r.USD.join("/")}` : "-", out.fx[b.id].url || "");
+}
+// banks abroad behind JSON endpoints (or one table row with several rates)
+for (const b of API_FX) {
+  const loc = n[b.ccy];
+  const exp = loc ? { EUR: n.EUR / loc, USD: n.USD / loc } : {};
+  let rates = {};
+  try {
+    if (b.text) {
+      const t = (await getBody(browser, b.page)).replace(/<[^>]+>/g, " ");
+      for (const c of ["EUR", "USD"]) {
+        const m = t.match(new RegExp(`\\b${c}\\b[^\\n]{0,400}`));
+        if (!m || !exp[c]) continue;
+        const v = (m[0].match(/\d+[.,]\d+/g) || []).map((x) => parseFloat(x.replace(",", "."))).filter((x) => Math.abs(x / exp[c] - 1) < 0.08);
+        const lo = v.filter((x) => x < exp[c]), hi = v.filter((x) => x > exp[c]);
+        if (lo.length && hi.length) rates[c] = [Math.max(...lo), Math.min(...hi)];
+      }
+    } else rates = await b.read(browser);
+  } catch (e) { console.log(b.id, "fail", e.message); }
+  out.fx[b.id] = { ccy: b.ccy, rates: sane(rates, exp), url: b.page };
+  const r = out.fx[b.id].rates;
+  console.log("fx", b.id, b.ccy, r.EUR ? `EUR ${r.EUR.join("/")}` : "-", r.USD ? `USD ${r.USD.join("/")}` : "-", `(mid EUR ${exp.EUR && exp.EUR.toFixed(4)})`);
+}
+// more sending banks: SEB (Sweden, JSON) and SpareBank 1 Sør-Norge (daily PDF)
+{
+  const expHome = (home) => Object.fromEntries(CODES.filter((c) => c !== home && (n[c] || c === "PLN")).map((c) => [c, (c === "PLN" ? 1 : n[c]) / n[home]]));
+  try { out.se.seb = { rates: sane(await seb(browser), expHome("SEK"), 0.06) }; } catch (e) { console.log("seb fail", e.message); out.se.seb = { rates: {} }; }
+  try { out.no.sb1 = { rates: sane(await sparebank1(), expHome("NOK"), 0.06) }; } catch (e) { console.log("sb1 fail", e.message); out.no.sb1 = { rates: {} }; }
+  console.log("se seb", Object.keys(out.se.seb.rates).length, "codes", JSON.stringify(out.se.seb.rates.EUR), "| no sb1", Object.keys(out.no.sb1.rates).length, "codes", JSON.stringify(out.no.sb1.rates.EUR));
+}
+// Nordic banks as receivers (money arriving in NOK/SEK/DKK): their own transfer tables, EUR/USD rows
+for (const [sec, id, ccy] of [["no", "dnb", "NOK"], ["no", "nordea", "NOK"], ["no", "sb1", "NOK"], ["se", "swedbank", "SEK"], ["se", "nordea_se", "SEK"], ["se", "seb", "SEK"], ["dk", "danske", "DKK"]]) {
+  const r = (out[sec][id] || {}).rates || {};
+  if (r.EUR) out.fx[`${id}_rcv`] = { ccy, rates: Object.fromEntries(["EUR", "USD"].filter((c) => r[c]).map((c) => [c, r[c]])), from: `${sec}.${id}` };
 }
 const prev = await previous();
 // Icelandic withholding tax for the salary calculator (re-read every 6 hours)
