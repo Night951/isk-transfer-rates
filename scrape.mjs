@@ -520,7 +520,7 @@ console.log("taxno", JSON.stringify(out.taxno));
           await sleep(8000);
           t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
         }
-        if (!parseDkTax(t, 2026)) console.log("taxdk sample", JSON.stringify(t.slice(0, 1500)));
+        if (!parseDkTax(t, 2026)) { const i = t.indexOf("Mellemskat:"); console.log("taxdk sample", JSON.stringify(t.slice(i, i + 1400))); }
         const year = +((t.match(/beløbsgrænser i (\d{4})/) || [])[1] || new Date().getUTCFullYear());
         const r = parseDkTax(t, year);
         if (r) out.taxdk = { ...r, src: "https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat", ms: Date.now() };

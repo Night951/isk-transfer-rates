@@ -57,7 +57,7 @@ export function parseSeTables(txt) {
 export function parseDkTax(text, year) {
   const t = text.replace(/ /g, " ");
   const pct = (name) => { const m = t.match(new RegExp(name + ":\\s*(\\d+(?:,\\d+)?)\\s*%")); return m ? +m[1].replace(",", ".") : NaN; };
-  const lims = [...t.matchAll(/personlig indkomst over ([\d.]{7,11}) kr\.? efter am-bidrag/gi)].map((m) => +m[1].replace(/\./g, ""));
+  const lims = [...t.matchAll(/personlig indkomst (?:på )?over ([\d.]{7,11})\s*kr/gi)].map((m) => +m[1].replace(/\./g, ""));
   const r = { year, bund: pct("Bundskat"), mellem: pct("Mellemskat"), top: pct("Topskat"), tt: pct("Toptopskat") };
   if (lims.length >= 2) { r.mellemLim = lims[0]; r.topLim = lims[1]; if (lims[2]) r.ttLim = lims[2]; }
   const ok = r.bund > 5 && r.bund < 20 && r.mellem > 0 && r.top > 0 && r.mellemLim > 300000 && r.topLim > r.mellemLim;
