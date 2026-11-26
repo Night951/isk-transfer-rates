@@ -23,7 +23,7 @@ const PL_BANKS = [
   { id: "mbank", urls: ["https://www.mbank.pl/serwis-ekonomiczny/kursy-walut/"] },
   { id: "pekao", urls: ["https://www.pekao.com.pl/kursy-walut/lista-walut.html"] },
   { id: "erste", urls: ["https://www.erste.pl/kursy-walut", "https://www.santander.pl/klient-indywidualny/karty-platnosci-i-przelewy/kursy-walut"] },
-  { id: "ing", urls: ["https://www.ing.pl/indywidualni/narzedzia-i-informacje/kursy-walut", "https://www.ing.pl/kursy-walut"] },
+  { id: "ing", urls: ["https://www.ing.pl/indywidualni/narzedzia-i-informacje/kursy-walut", "https://www.ing.pl/kursy-walut", "https://www.ing.pl/indywidualni/tabela-kursow"] },
   { id: "millennium", urls: ["https://www.bankmillennium.pl/kursy-walut", "https://www.bankmillennium.pl/o-banku/serwis-ekonomiczny/kursy-walut"] },
   { id: "walutomat", urls: ["https://www.walutomat.pl/kursy-walut/", "https://www.walutomat.pl/kursy-walut/eur-pln/"] },
   { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
@@ -225,7 +225,8 @@ async function scrapePl(browser, bank, n) {
     }
     if (rates.EUR) { used = url; break; }
   }
-  if (!rates.EUR) {
+  if (rates.EUR && !(rates.EUR[1] > rates.EUR[0])) { console.log(bank.id, "EUR buy = sell, ignored"); for (const c of Object.keys(rates)) if (!(rates[c][1] > rates[c][0])) delete rates[c]; }
+  if (!rates.EUR || process.env.PL_DEBUG === bank.id) {
     const t = await page.evaluate(PAGE_TEXT).catch(() => "");
     const k = t.search(/EUR/);
     console.log(bank.id, "no EUR; sample:", JSON.stringify(t.slice(Math.max(0, k - 200), k + 300)).slice(0, 600));
