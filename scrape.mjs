@@ -220,7 +220,15 @@ async function scrapePl(browser, bank, n) {
         }
       }
       const text = await page.evaluate(PAGE_TEXT).catch(() => "");
-      for (const c of PL_CODES) if (!rates[c] && exp[c]) { const v = findPair(text, labels(c), exp[c], TOL, 2); if (v) rates[c] = [Math.min(...v), Math.max(...v)]; }
+      // table rows first (summary boxes often show only the mid rate), then the whole page
+      const rows = text.split("@@ROWS@@")[1] || "";
+      for (const c of PL_CODES) {
+        if (rates[c] || !exp[c]) continue;
+        for (const part of [rows, text]) {
+          const v = findPair(part, labels(c), exp[c], TOL, 2);
+          if (v && Math.max(...v) > Math.min(...v)) { rates[c] = [Math.min(...v), Math.max(...v)]; break; }
+        }
+      }
       if (rates.EUR && rates.USD && i >= 2) break;
     }
     if (rates.EUR) { used = url; break; }
