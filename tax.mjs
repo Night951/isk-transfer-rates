@@ -38,3 +38,28 @@ export function parseNoTax(text, year) {
     && r.b1 > 100000 && r.b2 > r.b1 && r.b3 > r.b2 && r.b4 > r.b3 && r.b5 > r.b4 && r.s1 < r.s2 && r.s5 < 30;
   return ok ? r : null;
 }
+
+// Sweden: Skatteverket "allmänna tabeller månad" text file. Lines: 30B29 from to col1..col6 (B = amount, % = percent).
+/** {tables: {"29": [[from, to, tax], …]}} with column 1 only; percentages stored as negative numbers. */
+export function parseSeTables(txt) {
+  const tables = {};
+  for (const line of txt.split(/\r?\n/)) {
+    const m = line.replace(/^﻿/, "").match(/^30([B%])(\d{2})\s+(\d+)\s+(\d*)\s+(\d+)/);
+    if (!m) continue;
+    const t = m[2], from = +m[3], to = m[4] ? +m[4] : 99999999, v = +m[5];
+    (tables[t] = tables[t] || []).push([from, to, m[1] === "%" ? -v : v]);
+  }
+  const n = Object.keys(tables).length;
+  return n >= 10 && (tables["32"] || []).length > 100 ? { tables } : null;
+}
+
+// Denmark: skat.dk page "Bundskat, mellemskat, topskat og toptopskat".
+export function parseDkTax(text, year) {
+  const t = text.replace(/ /g, " ");
+  const pct = (name) => { const m = t.match(new RegExp(name + ":\\s*(\\d+(?:,\\d+)?)\\s*%")); return m ? +m[1].replace(",", ".") : NaN; };
+  const lims = [...t.matchAll(/personlig indkomst over ([\d.]{7,11}) kr\.? efter am-bidrag/gi)].map((m) => +m[1].replace(/\./g, ""));
+  const r = { year, bund: pct("Bundskat"), mellem: pct("Mellemskat"), top: pct("Topskat"), tt: pct("Toptopskat") };
+  if (lims.length >= 2) { r.mellemLim = lims[0]; r.topLim = lims[1]; if (lims[2]) r.ttLim = lims[2]; }
+  const ok = r.bund > 5 && r.bund < 20 && r.mellem > 0 && r.top > 0 && r.mellemLim > 300000 && r.topLim > r.mellemLim;
+  return ok ? r : null;
+}

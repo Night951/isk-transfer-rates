@@ -54,6 +54,11 @@ export function problems(out, isBankIds) {
   if (!out.ua || !out.ua.monobank || !out.ua.monobank.eur) p.push("monobank");
   if (!out.ua || !out.ua.privatbank || !out.ua.privatbank.eur) p.push("privatbank");
   if (!out.wise || Object.keys(out.wise).length < 5) p.push("wise");
+  // every other source the app relies on: banks in Poland, Norway, Sweden, Denmark and abroad, tax rules
+  for (const sec of ["pl", "no", "se", "dk", "fx"]) {
+    for (const [id, b] of Object.entries(out[sec] || {})) if (!b || !b.rates || !b.rates.EUR) p.push(`${sec}:${id}`);
+  }
+  for (const k of ["tax", "taxno", "taxse", "taxdk"]) if (!out[k]) p.push(k);
   return p;
 }
 

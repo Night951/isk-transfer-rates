@@ -4,7 +4,7 @@
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { labels, findPair, findPairByValue, EUR_LABELS, USD_LABELS } from "./parser.mjs";
-import { parseTax, parseNoTax } from "./tax.mjs";
+import { parseTax, parseNoTax, parseSeTables, parseDkTax } from "./tax.mjs";
 import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
 
 // keep in sync with Dest.java
@@ -38,12 +38,9 @@ const NO_BANKS = [
 // Sweden (SEK) and Denmark (DKK): same table format as Norway
 const SE_BANKS = [
   { id: "swedbank", urls: ["https://www.swedbank.se/privat/rantor-priser-och-kurser/valutakurser-betalningar.html", "https://www.swedbank.se/vv/privat/rantor-priser-och-kurser/valutakurser-betalningar.html"] },
-  { id: "seb", urls: ["https://seb.se/marknaden-och-kurslistor/valutakurser-avistakurser", "https://seb.se/bors-och-finans/valutakurser-avistakurser"] },
   { id: "nordea_se", urls: ["https://www.nordea.se/privat/valutakurser.html"] },
 ];
 const DK_BANKS = [
-  { id: "nordea_dk", urls: ["https://www.nordea.dk/privat/produkter/konto-og-betaling/valutakurser.html", "https://www.nordea.dk/privat/valutakurser.html"] },
-  { id: "jyske", urls: ["https://www.jyskebank.dk/kurser/valutakurser", "https://www.jyskebank.dk/privat/vaerktoejer/valutakurser"] },
   { id: "dnb_dk", urls: ["https://www.dnb.no/dk/da/markets/valuta-renter/kursliste.html"] },
 ];
 // Danske Bank publishes no rate list, only its margin over the market rate (±0.40% for main currencies)
@@ -493,33 +490,42 @@ if (!out.taxno) {
   if (!out.taxno && prev && prev.taxno) out.taxno = prev.taxno;
 }
 console.log("taxno", JSON.stringify(out.taxno));
-// diagnostics: Swedish monthly tax tables (txt) and Danish rates on skat.dk
+// Sweden: Skatteverket's monthly withholding tables (column 1) → public/taxse.json (read by the app only in Sweden mode)
+// Denmark: rates from skat.dk (re-read every 6 hours)
 {
   const page = await browser.newPage();
   try {
     if (await load(page, "https://skatteverket.se/specialversionerforprogramforetagmfl.4.319dc1451507f2f99e86ee.html")) {
       await sleep(1500);
-      const links = await page.evaluate(() => [...document.querySelectorAll("a")].map((a) => [a.innerText.trim(), a.href]).filter(([t, h]) => /txt|\.txt/i.test(t + h)).slice(0, 12)).catch(() => []);
-      console.log("taxse links", JSON.stringify(links));
-      const l = links.find(([t]) => /månadslön/i.test(t)) || links[0];
-      if (l) {
-        const res = await page.request.get(l[1]);
-        const body = await res.text();
-        console.log("taxse file", res.status(), body.length, JSON.stringify(body.slice(0, 700)));
-        const i = body.search(/\n30B/);
-        console.log("taxse sample30", JSON.stringify(body.slice(i, i + 500)));
+      const links = await page.evaluate(() => [...document.querySelectorAll("a")].map((a) => [a.innerText.trim(), a.href]).filter(([t]) => /månadslön/i.test(t) && /txt/i.test(t))).catch(() => []);
+      const heads = await page.evaluate(() => document.body.innerText).catch(() => "");
+      const year = +((heads.match(/Samtliga tabeller (\d{4}) för månadslön/) || [])[1] || new Date().getUTCFullYear());
+      if (links.length) {
+        const res = await page.request.get(links[0][1]);
+        const parsed = parseSeTables(await res.text());
+        if (parsed) {
+          mkdirSync("public", { recursive: true });
+          writeFileSync("public/taxse.json", JSON.stringify({ year, src: links[0][1], ms: Date.now(), ...parsed }));
+          out.taxse = { year, tables: Object.keys(parsed.tables).length, url: "taxse.json" };
+        }
       }
     }
   } catch (e) { console.log("taxse fail", e.message); }
-  for (const url of ["https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat", "https://skat.dk/hjaelp/personfradrag", "https://skat.dk/hjaelp/beskaeftigelsesfradrag", "https://skat.dk/hjaelp/am-bidrag"]) {
+  console.log("taxse", JSON.stringify(out.taxse || null));
+  out.taxdk = prev && prev.taxdk && Date.now() - (prev.taxdk.ms || 0) < 6 * 3600 * 1000 ? prev.taxdk : null;
+  if (!out.taxdk) {
     try {
-      if (!(await load(page, url))) { console.log("taxdk no load", url); continue; }
-      await sleep(1500);
-      const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
-      const i = t.search(/\d{1,3}\.\d{3} kr|procent|%/);
-      console.log("taxdk", url, t.length, JSON.stringify(t.slice(Math.max(0, i - 200), i + 700)));
-    } catch (e) { console.log("taxdk fail", url, e.message); }
+      if (await load(page, "https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat")) {
+        await sleep(1500);
+        const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
+        const year = +((t.match(/beløbsgrænser i (\d{4})/) || [])[1] || new Date().getUTCFullYear());
+        const r = parseDkTax(t, year);
+        if (r) out.taxdk = { ...r, src: "https://skat.dk/hjaelp/bundskat-mellemskat-topskat-og-toptopskat", ms: Date.now() };
+      }
+    } catch (e) { console.log("taxdk fail", e.message); }
+    if (!out.taxdk && prev && prev.taxdk) out.taxdk = prev.taxdk;
   }
+  console.log("taxdk", JSON.stringify(out.taxdk));
   await page.close();
 }
 await browser.close();

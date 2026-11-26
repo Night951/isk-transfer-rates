@@ -30,3 +30,13 @@ const rn = parseNoTax(no, 2026);
 console.log(JSON.stringify(rn));
 if (!rn || rn.pers !== 114540 || rn.minMax !== 95700 || rn.b1 !== 226100 || rn.b5 !== 1467200 || rn.s4 !== 16.8 || rn.tryg !== 7.6 || rn.trygLow !== 99650) { console.error("NO FAIL"); process.exit(1); }
 console.log("no tax ok");
+
+import { parseSeTables, parseDkTax } from "./tax.mjs";
+let se = "";
+for (let t = 29; t <= 40; t++) { for (let i = 0; i < 120; i++) se += `30B${t}   ${2001 + i * 100}   ${2100 + i * 100}  ${150 + i}    0\n`; se += `30%${t}  80001          52   52\n`; }
+const st = parseSeTables(se);
+if (!st || st.tables["32"][0][2] !== 150 || st.tables["32"].at(-1)[2] !== -52) { console.error("SE FAIL", st && st.tables["32"].at(-1)); process.exit(1); }
+console.log("se tables ok");
+const dk = parseDkTax(`Bundskat: 12,01 %  \nMellemskat: 7,5 %  \nhvis du har en personlig indkomst over 641.200 kr. efter am-bidrag, skal du\nTopskat: 7,5 % \nHvis du har en personlig indkomst over 777.900 kr. efter am-bidrag\nToptopskat: 5 %\nhar en personlig indkomst over 2.592.700 kr. efter am-bidrag`, 2026);
+if (!dk || dk.bund !== 12.01 || dk.mellemLim !== 641200 || dk.topLim !== 777900 || dk.ttLim !== 2592700) { console.error("DK FAIL", dk); process.exit(1); }
+console.log("dk tax ok");
