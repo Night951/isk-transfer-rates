@@ -16,6 +16,19 @@ const IS_BANKS = [
 ];
 const ALIOR_URLS = ["https://kantor.aliorbank.pl/", "https://kantor.aliorbank.pl/kursy-walut",
   "https://kantor.aliorbank.pl/forex/eur.html", "https://kantor.aliorbank.pl/forex/usd.html"];
+// Polish banks and online kantors: rates for converting EUR/USD (and a few more) to PLN, as PLN per 1 unit.
+// URLs in priority order (the online kantor first where it has its own table).
+const PL_BANKS = [
+  { id: "pko", urls: ["https://www.pkobp.pl/kantor-internetowy-kursy/", "https://www.pkobp.pl/waluty/", "https://www.pkobp.pl/kursy-walut/"] },
+  { id: "mbank", urls: ["https://www.mbank.pl/serwis-ekonomiczny/kursy-walut/"] },
+  { id: "pekao", urls: ["https://www.pekao.com.pl/kursy-walut/lista-walut.html"] },
+  { id: "erste", urls: ["https://www.erste.pl/kursy-walut", "https://www.santander.pl/klient-indywidualny/karty-platnosci-i-przelewy/kursy-walut"] },
+  { id: "ing", urls: ["https://www.ing.pl/indywidualni/narzedzia-i-informacje/kursy-walut", "https://www.ing.pl/kursy-walut"] },
+  { id: "millennium", urls: ["https://www.bankmillennium.pl/kursy-walut", "https://www.bankmillennium.pl/o-banku/serwis-ekonomiczny/kursy-walut"] },
+  { id: "walutomat", urls: ["https://www.walutomat.pl/kursy-walut/", "https://www.walutomat.pl/kursy-walut/eur-pln/"] },
+  { id: "internetowykantor", urls: ["https://internetowykantor.pl/kursy-walut/", "https://internetowykantor.pl/kurs-euro/"] },
+];
+const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 const TOL = 0.04;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -190,6 +203,37 @@ async function scrapeAlior(browser, n) {
   return Object.fromEntries(Object.entries(res).filter(([, v]) => v));
 }
 
+/** One Polish bank/kantor: {rates: {EUR: [buy, sell], …}, url}. Dismisses cookie banners first. */
+async function scrapePl(browser, bank, n) {
+  const page = await browser.newPage({ viewport: { width: 1366, height: 1000 }, locale: "pl-PL" });
+  const exp = Object.fromEntries(PL_CODES.filter((c) => n[c]).map((c) => [c, n[c]]));
+  const rates = {};
+  let used = "";
+  for (const url of bank.urls) {
+    if (!(await load(page, url))) continue;
+    for (let i = 0; i < 8; i++) {
+      await sleep(1500);
+      if (i === 1) {
+        for (const re of [/^(akceptuj|zaakceptuj|zgadzam|accept|ok|rozumiem)/i]) {
+          const b = page.locator("button, a").filter({ hasText: re }).filter({ visible: true }).first();
+          try { if (await b.count()) await b.click({ timeout: 1500 }); } catch { /* ignore */ }
+        }
+      }
+      const text = await page.evaluate(PAGE_TEXT).catch(() => "");
+      for (const c of PL_CODES) if (!rates[c] && exp[c]) { const v = findPair(text, labels(c), exp[c], TOL, 2); if (v) rates[c] = [Math.min(...v), Math.max(...v)]; }
+      if (rates.EUR && rates.USD && i >= 2) break;
+    }
+    if (rates.EUR) { used = url; break; }
+  }
+  if (!rates.EUR) {
+    const t = await page.evaluate(PAGE_TEXT).catch(() => "");
+    const k = t.search(/EUR/);
+    console.log(bank.id, "no EUR; sample:", JSON.stringify(t.slice(Math.max(0, k - 200), k + 300)).slice(0, 600));
+  }
+  await page.close();
+  return { rates, url: used };
+}
+
 async function ukraine(n) {
   const ua = { monobank: {}, privatbank: {} };
   const ok = (v, e) => v > 0 && Math.abs(v / e - 1) < 0.06;
@@ -257,6 +301,12 @@ for (const b of IS_BANKS) {
   console.log(b.id, Object.keys(out.banks[b.id].rates).join(","), "card:", Object.keys(out.banks[b.id].card).join(","));
 }
 out.alior = await scrapeAlior(browser, n);
+out.pl = {};
+for (const b of PL_BANKS) {
+  try { out.pl[b.id] = await scrapePl(browser, b, n); } catch (e) { console.log(b.id, "fail", e.message); out.pl[b.id] = { rates: {} }; }
+  const r = out.pl[b.id].rates;
+  console.log("pl", b.id, Object.keys(r).join(","), r.EUR ? `EUR ${r.EUR.join("/")} (NBP ${n.EUR})` : "", out.pl[b.id].url || "");
+}
 
 console.log("alior", JSON.stringify(out.alior));
 await browser.close();
