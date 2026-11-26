@@ -4,7 +4,7 @@
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { labels, findPair, findPairByValue, EUR_LABELS, USD_LABELS } from "./parser.mjs";
-import { parseTax } from "./tax.mjs";
+import { parseTax, parseNoTax } from "./tax.mjs";
 import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from "./history.mjs";
 
 // keep in sync with Dest.java
@@ -33,7 +33,7 @@ const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 // Norwegian banks (sending side when the app is set to Norway): NOK per 1 unit, [bank buys, bank sells]
 const NO_BANKS = [
   { id: "dnb", urls: ["https://www.dnb.no/bedrift/markets/valuta-renter/kursliste/overforsel/daglig", "https://www.dnb.no/markets/valuta-og-renter/valutakurser/valutakurs-overforsel-daglig"] },
-  { id: "nordea", urls: ["https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html", "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser-og-valutakalkulator.html"] },
+  { id: "nordea", urls: ["https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html#tab=Daglige-kurser---Overforinger-Sjekker", "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser-og-valutakalkulator.html"] },
   { id: "sparebank1", urls: ["https://www.sparebank1.no/nb/sr-bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/nb/bank/privat/daglig-bruk/valuta/valutakurser.html", "https://www.sparebank1.no/content/dam/SB1/bank/sr-bank/markedsrapporter/markets/daglig_oppdatering/dagens_valutakurser.pdf"] },
 ];
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
@@ -313,7 +313,8 @@ async function scrapeNo(browser, bank, n) {
         const b = page.locator("button, a").filter({ hasText: /^(godta|aksepter|jeg forstår|ok|tillat alle|godkjenn)/i }).filter({ visible: true }).first();
         try { if (await b.count()) await b.click({ timeout: 1500 }); } catch { /* ignore */ }
       }
-      const text = await page.evaluate(PAGE_TEXT).catch(() => "");
+      let text = await page.evaluate(PAGE_TEXT).catch(() => "");
+      for (const f of page.frames()) if (f !== page.mainFrame()) text += "\n" + (await f.evaluate(() => document.body ? document.body.innerText : "").catch(() => ""));
       const rows = text.split("@@ROWS@@")[1] || "";
       for (const c of codes) {
         if (rates[c]) continue;
@@ -443,26 +444,27 @@ if (!out.tax) {
   if (!out.tax && prev && prev.tax) out.tax = prev.tax; // keep the last known values
 }
 console.log("tax", JSON.stringify(out.tax));
-// Norway: withholding rules for the salary calculator (diagnostics first)
-{
+// Norway: tax rules for the salary calculator from skatteetaten.no (re-read every 6 hours)
+out.taxno = prev && prev.taxno && Date.now() - (prev.taxno.ms || 0) < 6 * 3600 * 1000 ? prev.taxno : null;
+if (!out.taxno) {
   const page = await browser.newPage();
   const y = new Date().getUTCFullYear();
-  for (const slug of ["personfradrag", "minstefradrag", "trinnskatt", "trygdeavgift", "kildeskatt-pa-lonn"]) {
-    const url = `https://www.skatteetaten.no/satser/${slug}/?year=${y}`;
-    if (!(await load(page, url))) { console.log("notax: no load", url); continue; }
-    await sleep(2000);
-    const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
-    const i = t.search(/\d{1,3} \d{3} kr|pst|prosent|%/);
-    console.log("notax", slug, t.length, JSON.stringify(t.slice(Math.max(0, i - 300), i + 500)));
-  }
-  // Nordea: where is the downloadable rate list?
-  if (await load(page, "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html")) {
-    await sleep(3000);
-    const links = await page.evaluate(() => [...document.querySelectorAll("a, iframe")].map((a) => a.href || a.src).filter((h) => /csv|txt|xls|wemapp|valuta|currency|kurs/i.test(h || "")).slice(0, 30)).catch(() => []);
-    console.log("nordea links", JSON.stringify(links));
+  for (const year of [y, y - 1]) {
+    const parts = [];
+    for (const slug of ["personfradrag", "minstefradrag", "trinnskatt", "trygdeavgift"]) {
+      const url = `https://www.skatteetaten.no/satser/${slug}/?year=${year}`;
+      if (!(await load(page, url))) continue;
+      await sleep(1500);
+      parts.push(await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => ""));
+    }
+    const r = parseNoTax(parts.join("\n#####\n"), year);
+    if (r) { out.taxno = { ...r, paye: 25, payeNoTryg: 17.4, src: "https://www.skatteetaten.no/satser/", ms: Date.now() }; break; }
+    console.log("taxno: not parsed for", year);
   }
   await page.close();
+  if (!out.taxno && prev && prev.taxno) out.taxno = prev.taxno;
 }
+console.log("taxno", JSON.stringify(out.taxno));
 await browser.close();
 out.ua = await ukraine(n);
 console.log("ua", JSON.stringify(out.ua));
