@@ -19,7 +19,7 @@ for (const [id, url] of G) {
   let st = "?";
   try { const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 35000 }); st = resp ? resp.status() : "null"; }
   catch (e) { st = "ERR " + e.message.split("\n")[0]; }
-  await sleep(9000);
+  await sleep(14000);
   let text = "";
   try { text = await page.evaluate(() => document.body ? document.body.innerText : ""); } catch {}
   const lines = text.split("\n").map((l) => l.trim()).filter((l) => /\b(EUR|USD)\b/.test(l) && /\d/.test(l)).slice(0, 6);
