@@ -447,16 +447,19 @@ console.log("tax", JSON.stringify(out.tax));
 {
   const page = await browser.newPage();
   const y = new Date().getUTCFullYear();
-  for (const url of [`https://www.skatteetaten.no/rettskilder/type/skattedirektoratets-meldinger/forskuddsmeldingen-${y}/`,
-    `https://www.skatteetaten.no/en/rettskilder/type/skattedirektoratets-meldinger/forskuddsmeldingen-${y}/`]) {
+  for (const slug of ["personfradrag", "minstefradrag", "trinnskatt", "trygdeavgift", "kildeskatt-pa-lonn"]) {
+    const url = `https://www.skatteetaten.no/satser/${slug}/?year=${y}`;
     if (!(await load(page, url))) { console.log("notax: no load", url); continue; }
-    await sleep(1500);
+    await sleep(2000);
     const t = await page.evaluate(() => document.body ? document.body.innerText : "").catch(() => "");
-    for (const k of ["Personfradrag", "Minstefradrag", "Trinnskatt", "Trygdeavgift", "Kildeskatt", "Alminnelig inntekt", "Finnmark"]) {
-      const i = t.indexOf(k);
-      console.log("notax", k, i, JSON.stringify(i >= 0 ? t.slice(i, i + 420) : ""));
-    }
-    if (t.includes("Personfradrag")) break;
+    const i = t.search(/\d{1,3} \d{3} kr|pst|prosent|%/);
+    console.log("notax", slug, t.length, JSON.stringify(t.slice(Math.max(0, i - 300), i + 500)));
+  }
+  // Nordea: where is the downloadable rate list?
+  if (await load(page, "https://www.nordea.no/privat/vare-produkter/konto-og-betalinger/valutakurser.html")) {
+    await sleep(3000);
+    const links = await page.evaluate(() => [...document.querySelectorAll("a, iframe")].map((a) => a.href || a.src).filter((h) => /csv|txt|xls|wemapp|valuta|currency|kurs/i.test(h || "")).slice(0, 30)).catch(() => []);
+    console.log("nordea links", JSON.stringify(links));
   }
   await page.close();
 }
