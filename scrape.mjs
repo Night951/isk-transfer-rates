@@ -33,19 +33,12 @@ const PL_CODES = ["EUR", "USD", "GBP", "CHF", "NOK", "SEK", "DKK"];
 // banks abroad: their rate for converting incoming EUR/USD into the local currency (local units per 1 EUR/USD)
 const FX_BANKS = [
   { id: "fio", ccy: "CZK", urls: ["https://www.fio.cz/bankovni-sluzby/kurzovni-listek", "https://www.fio.cz/akcie-investice/dalsi-sluzby-fio/devizove-konverze"] },
-  { id: "csob", ccy: "CZK", urls: ["https://www.csob.cz/portal/lide/kurzovni-listek", "https://www.csob.cz/lide/kurzovni-listek"] },
-  { id: "kb", ccy: "CZK", urls: ["https://www.kb.cz/cs/kurzovni-listek", "https://www.kb.cz/cs/kurzovni-listek/cs/rl/index"] },
   { id: "csas", ccy: "CZK", urls: ["https://www.csas.cz/cs/kurzovni-listek", "https://www.csas.cz/cs/kurzovni-listek#/"] },
   { id: "airbank", ccy: "CZK", urls: ["https://www.airbank.cz/kurzovni-listek/"] },
-  { id: "bt", ccy: "RON", urls: ["https://www.bancatransilvania.ro/curs-valutar", "https://www.bancatransilvania.ro/curs-valutar-spot"] },
   { id: "bcr", ccy: "RON", urls: ["https://www.bcr.ro/ro/curs-valutar", "https://www.bcr.ro/ro/persoane-fizice/curs-valutar"] },
-  { id: "brd", ccy: "RON", urls: ["https://www.brd.ro/curs-valutar-si-dobanzi-de-referinta", "https://www.brd.ro/curs-valutar"] },
   { id: "ingro", ccy: "RON", urls: ["https://www.ing.ro/curs-valutar", "https://ing.ro/persoane-fizice/curs-valutar"] },
   { id: "oschad", ccy: "UAH", urls: ["https://www.oschadbank.ua/currency-rate", "https://www.oschadbank.ua/en/currency-rate"] },
-  { id: "raiffua", ccy: "UAH", urls: ["https://raiffeisen.ua/currency", "https://raiffeisen.ua/en/currency"] },
   { id: "pumb", ccy: "UAH", urls: ["https://about.pumb.ua/info/currency_converter", "https://www.pumb.ua/"] },
-  { id: "bb", ccy: "BRL", urls: ["https://www.bb.com.br/site/cotacao-de-moedas/", "https://www.bb.com.br/pbb/pagina-inicial/voce/produtos-e-servicos/cambio/cotacao-de-moedas"] },
-  { id: "itau", ccy: "BRL", urls: ["https://www.itau.com.br/cambio/cotacao", "https://www.itau.com.br/investimentos/cambio"] },
 ];
 const TOL = 0.04;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
