@@ -33,7 +33,7 @@ import { snapshot, addDay, shouldSave, wiseModel, problems, persistent } from ".
   assert.strictEqual(shouldSave(1000, "2026-11-23", "2026-11-24", 1001), true);
   const m = wiseModel({ amount: 1000, rate: 4.4597, fee: 6.2 }, { amount: 200, rate: 4.4597, fee: 1.8 });
   assert.deepStrictEqual(m, { rate: 4.4597, pct: 0.55, fixed: 0.7 });
-  assert.deepStrictEqual(problems({ banks: {}, alior: {}, ua: {}, wise: {} }, ["arion"]), ["bank:arion", "alior", "monobank", "privatbank", "wise"]);
+  assert.deepStrictEqual(problems({ banks: {}, alior: {}, ua: {}, wise: {}, tax: {}, taxno: {}, taxse: {}, taxdk: {}, no: { dnb: { rates: {} } } }, ["arion"]), ["bank:arion", "alior", "monobank", "privatbank", "wise", "no:dnb"]);
   assert.deepStrictEqual(persistent(["alior", "wise"], ["wise"]), ["wise"]);
   console.log("history tests OK");
 }
