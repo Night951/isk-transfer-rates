@@ -459,7 +459,11 @@ for (const b of API_FX) {
   let rates = {};
   try {
     if (b.text) {
-      const t = (await getBody(browser, b.page)).replace(/<[^>]+>/g, " ");
+      const pg = await browser.newPage({ viewport: { width: 1366, height: 1000 } });
+      await load(pg, b.page);
+      let t = "";
+      for (let i = 0; i < 6 && !/\bEUR\b[^\n]*\d+[.,]\d{3}/.test(t); i++) { await sleep(1500); t = await pg.evaluate(() => document.body ? document.body.innerText : "").catch(() => ""); }
+      await pg.close();
       for (const c of ["EUR", "USD"]) {
         const m = t.match(new RegExp(`\\b${c}\\b[^\\n]{0,400}`));
         if (!m || !exp[c]) continue;

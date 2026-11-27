@@ -176,15 +176,17 @@ export async function sparebank1() {
   if (!res.ok) throw new Error("HTTP " + res.status);
   const { default: pdf } = await import("pdf-parse/lib/pdf-parse.js");
   const text = (await pdf(Buffer.from(await res.arrayBuffer()))).text;
-  return parseSb1(text);
+  const r = parseSb1(text);
+  if (!r.EUR) console.log("sb1 pdf text sample:", JSON.stringify(text.slice(0, 600)));
+  return r;
 }
 
 export function parseSb1(text) {
   const r = {};
-  const re = /(\d+)\s+([A-Z]{3})\s+([\d\s.,]+)/g;
+  const re = /(\d{1,3})\s*([A-Z]{3})\s*((?:\d+[.,]\d{2,4}\s*){3,})/g;
   let m;
   while ((m = re.exec(text))) {
-    const units = parseInt(m[1], 10), nums = m[2] && m[3].trim().split(/\s+/).map(num).filter((x) => x > 0);
+    const units = parseInt(m[1], 10), nums = (m[3].match(/\d+[.,]\d{2,4}/g) || []).map(num).filter((x) => x > 0);
     if (!(units > 0) || !nums || nums.length < 3 || r[m[2]]) continue;
     r[m[2]] = [nums[1] / units, nums[2] / units];
   }
