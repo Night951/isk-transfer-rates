@@ -56,6 +56,9 @@ const FX_BANKS = [
   { id: "pumb", ccy: "UAH", urls: ["https://about.pumb.ua/info/currency_converter", "https://www.pumb.ua/"] },
   { id: "rb_cz", ccy: "CZK", urls: ["https://www.rb.cz/informacni-servis/kurzovni-listek"] },
   { id: "bochk", ccy: "HKD", urls: ["https://www.bochk.com/whk/rates/exchangeRatesHKD/exchangeRatesHKD-input.action?lang=en"] },
+  { id: "migros", ccy: "CHF", urls: ["https://www.migrosbank.ch/de/privatpersonen/konten-karten/noten-devisenkurse.html"] },
+  { id: "szkb", ccy: "CHF", urls: ["https://www.szkb.ch/private/anlegen/boersen-maerkte/noten-und-devisen"] },
+  { id: "bpi", ccy: "PHP", urls: ["https://www.bpi.com.ph/personal/bank/forex/rates"] },
 ];
 const TOL = 0.04;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

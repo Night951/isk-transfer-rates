@@ -148,6 +148,19 @@ export const API_FX = [
     },
   },
   {
+    id: "bnz", ccy: "NZD", page: "https://www.bnz.co.nz/personal-banking/international/exchange-rates",
+    async read(browser) {
+      // XML feed, foreign currency per 1 NZD: NZD per EUR = 1 / ttbuy
+      const t = await getBody(browser, "https://api.bnz.co.nz/v1/ratesfeed/fx/xml", this.page);
+      const r = {};
+      for (const c of ["EUR", "USD"]) {
+        const m = t.match(new RegExp(`<currency>${c}</currency>[\\s\\S]*?<ttbuy>([\\d.]+)</ttbuy>[\\s\\S]*?<ttsell>([\\d.]+)</ttsell>`));
+        if (m && num(m[1]) > 0 && num(m[2]) > 0) r[c] = [1 / num(m[1]), 1 / num(m[2])];
+      }
+      return r;
+    },
+  },
+  {
     id: "absa", ccy: "ZAR", page: "https://www.absa.co.za/indices/exchange-rates/",
     text: true, // row of several buying and selling rates: best below the mid = TT buy, best above = TT sell
   },
