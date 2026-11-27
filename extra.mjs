@@ -13,7 +13,11 @@ export async function getBody(browser, url, pageUrl) {
   const page = await browser.newPage();
   try {
     if (pageUrl) { await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {}); }
-    const t = await page.evaluate(async (u) => { const r = await fetch(u, { credentials: "include" }); return r.ok ? r.text() : ""; }, url).catch(() => "");
+    let t = "";
+    for (const cred of ["omit", "include"]) {
+      t = await page.evaluate(async ([u, c]) => { const r = await fetch(u, { credentials: c }); return r.ok ? r.text() : ""; }, [url, cred]).catch(() => "");
+      if (t) break;
+    }
     if (t) return t;
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     return resp ? await resp.text() : "";
@@ -157,6 +161,7 @@ export const API_FX = [
         const m = t.match(new RegExp(`<currency>${c}</currency>[\\s\\S]*?<ttbuy>([\\d.]+)</ttbuy>[\\s\\S]*?<ttsell>([\\d.]+)</ttsell>`));
         if (m && num(m[1]) > 0 && num(m[2]) > 0) r[c] = [1 / num(m[1]), 1 / num(m[2])];
       }
+      if (!r.EUR) console.log("bnz sample:", JSON.stringify(t.slice(0, 300)));
       return r;
     },
   },
